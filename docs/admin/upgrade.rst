@@ -45,67 +45,52 @@ the moin2 sample config (do not just use your 1.9 wikiconfig).
 
 Adjusting the moin2 configuration
 ---------------------------------
-It is essential that you adjust the wiki config before you export your 1.9
-data to xml:
+It is essential that you adjust the wiki config before you import your 1.9
+data:
 
 Configuration::
 
     from os.path import join
-    from MoinMoin.storage.backends import create_simple_mapping
+    from MoinMoin.storage import create_simple_mapping
 
-    interwikiname = ... # critical, make sure it is same as in 1.9!
-    sitename = ... # same as in 1.9
-    item_root = ... # see page_front_page in 1.9
-    theme_default = ... # (only supported value is "modernized")
-    language_default = ...
-    mail_smarthost = ...
-    mail_sendmail = ...
-    mail_from = ...
-    mail_login = ...
-    # XXX default_markup must be 'wiki' right now
-    page_category_regex = ... # XXX check
+    interwikiname = u'...' # critical, make sure it is same as in 1.9!
+    sitename = u'...' # same as in 1.9
+    item_root = u'...' # see page_front_page in 1.9
 
-    # think about which backend you will use in the end and configure
-    # it here (this is NOT the fs19 backend!):
-    namespace_mapping = \
-        create_simple_mapping(
-            backend_uri='fs2:/some/path/%%(nsname)s',
-            content_acl=dict(before=u'', # acl_rights_before in 1.9
-                             default=u'', # acl_rights_default
-                             after=u'', # acl_rights_after
-                             hierarchic=False), # acl_hierarchic
-            user_profile_acl=dict(before=u'',
-                                  default=u'',
-                                  after=u'',
-                                  hierarchic=False),
-        )
+    # configure backend and ACLs to use in future
+    # TODO
 
-Exporting your moin 1.9 data to an XML file
--------------------------------------------
-moin2 can use the `fs19` storage backend to access your moin 1.9 content
-(pages, attachments and users). The fs19 backend is a bit more than just
-a backend - it also makes the moin 1.9 data look like moin2 data when
-moin accesses them. To support this, it is essential that you adjust your
-wiki config first, see previous section.
 
-Then, use a **copy** of your 1.9 content, do not point moin2 it at your
-original data::
+Clean up your moin 1.9 data
+---------------------------
+It is a good idea to clean up your 1.9 data first, before trying to import
+it into moin2. By getting the data into good shape you can avoid quite some
+warnings the importer would emit otherwise.
 
-    moin maint_xml --moin19data=/your/moin19/data --save --file=moin19.xml
+You do this with moin 1.9 (!), using these commands::
 
-This will serialize all your moin 1.9 data into moin19.xml.
+  moin ... maint cleanpage
+  moin ... maint cleancache
 
-Note: depending on the size of your wiki, this can take rather long and consume
-about the same amount of additional disk space.
+.. todo::
+   add more infos about handling of deleted pages
 
-Importing the XML file into moin2
----------------------------------
-Just load moin19.xml into the storage backend you have already configured::
 
-    moin maint_xml --load --file=moin19.xml
+Importing your moin 1.9 data
+----------------------------
+It is assumed that you have no moin2 storage and no index created yet,
+thus we include -s and -i options to create the storage and an empty index.
 
-Note: depending on the size of your wiki, this can take rather long and consume
-about the same amount of additional disk space.
+The import19 will then read your 1.9 data_dir (pages, attachments and users),
+convert the data as needed and write it to your moin2 storage (and also
+build the index)::
+
+  moin import19 -s -i --data_dir /your/moin/1.9/data 1>import1.log 2>import2.log
+
+If you use the command as given, it will write all output into 2 log files,
+please review them to find whether the importer had critical issues with your
+data.
+
 
 Testing
 -------
@@ -117,6 +102,7 @@ Check whether your data is complete and working OK.
 
 If you find issues with data migration from moin 1.9 to 2, please check the
 moin2 issue tracker.
+
 
 Cleanup
 -------

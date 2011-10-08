@@ -116,6 +116,10 @@ class ConfigFunctionality(object):
             raise error.ConfigurationError("No storage configuration specified! You need to define a namespace_mapping. " + \
                                            "For further reference, please see HelpOnStorageConfiguration.")
 
+        if self.acl_mapping is None:
+            raise error.ConfigurationError("No acl configuration specified! You need to define a acl_mapping. " + \
+                                           "For further reference, please see HelpOnStorageConfiguration.")
+
         if self.secrets is None:  # admin did not setup a real secret
             raise error.ConfigurationError("No secret configured! You need to set secrets = 'somelongsecretstring' in your wiki config.")
 
@@ -370,7 +374,7 @@ options_no_group_name = {
         ('frontend.subscribe_item', None, L_('Switch notifications about item changes on or off'), True, ),
         ('frontend.copy_item', L_('Copy'), L_('Create a copy of this item'), True, ),
         ('frontend.rename_item', L_('Rename'), L_('Rename this item'), True, ),
-        ('frontend.delete_item', L_('Delete'), L_('Move this item to the trash'), True, ),
+        ('frontend.delete_item', L_('Delete'), L_('Delete this item'), True, ),
         ('frontend.destroy_item', L_('Destroy'), L_('Completely destroy this item'), True, ),
         ('frontend.backrefs', L_('Referrers'), L_('What refers here?'), False, ),
         ('frontend.sitemap', L_('Site Map'), L_('Local Site Map of this item'), True, ),
@@ -408,8 +412,15 @@ options_no_group_name = {
     ('interwiki_map', {},
      "Dictionary of wiki_name -> wiki_url"),
     ('namespace_mapping', None,
-    "This needs to point to a (correctly ordered!) list of tuples, each tuple containing: Namespace identifier, backend, acl protection to be applied to that backend. " + \
-    "E.g.: [('/', FSBackend('wiki/data'), dict(default='All:read,write,create')), ]. Please see HelpOnStorageConfiguration for further reference."),
+    "This needs to point to a list of tuples, each tuple containing: Namespace identifier, backend. " + \
+    "E.g.: [('/', FSBackend('wiki/data')), ]. Please see HelpOnStorageConfiguration for further reference."),
+    ('acl_mapping', None,
+    "This needs to point to a list of tuples, each tuple containing: name prefix, acl protection to be applied to matching items. " + \
+    "E.g.: [('', dict(default='All:read,write,create')), ]. Please see HelpOnStorageConfiguration for further reference."),
+    ('create_storage', False, "Create (initialize) the storage backends before trying to use them."),
+    ('create_index', False, "Create (initialize) the index before trying to use them."),
+    ('destroy_storage', False, "Destroy (empty) the storage backends after using them."),
+    ('destroy_index', False, "Destroy (empty) the index after using it."),
   )),
   # ==========================================================================
   'items': ('Special item names', None, (
@@ -530,7 +541,6 @@ options = {
       ('content', '/', "All content is by default stored below /, hence the prefix is ''."),  # Not really necessary. Just for completeness.
       ('user_profile', 'UserProfile/', 'User profiles (i.e. user data, not their homepage) are stored in this namespace.'),
       ('user_homepage', 'User/', 'All user homepages are stored below this namespace.'),
-      ('trash', 'Trash/', 'This is the namespace in which an item ends up when it is deleted.')
     )),
 
     'user': ('Users / User settings', None, (

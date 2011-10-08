@@ -113,7 +113,7 @@ class ConverterExternOutput(ConverterBase):
               url_encode quotes the qs values (and Iri code will quote them again)
         """
         do = None
-        revno = None
+        rev = None
         separator = '&'
         result = []
         if query:
@@ -128,15 +128,13 @@ class ConverterExternOutput(ConverterBase):
                     do = v
                     continue # we remove do=xxx from qs
                 if k == 'rev':
-                    revno = v
+                    rev = v
                     continue # we remove rev=n from qs
                 result.append(u'%s=%s' % (k, v))
         if result:
             query = separator.join(result)
         else:
             query = None
-        if revno is not None:
-            revno = int(revno)
         do_to_endpoint = dict(
             show='frontend.show_item',
             get='frontend.get_item',
@@ -146,7 +144,7 @@ class ConverterExternOutput(ConverterBase):
             # ...
         )
         endpoint = do_to_endpoint[do or 'show']
-        return endpoint, revno, query
+        return endpoint, rev, query
 
     def handle_wiki_links(self, elem, input):
         wiki_name = 'Self'
@@ -157,8 +155,8 @@ class ConverterExternOutput(ConverterBase):
                 elem.set(html.class_, 'moin-interwiki')
                 wiki_name = wn
         item_name = unicode(input.path[1:])
-        endpoint, revno, query = self._get_do_rev(input.query)
-        url = url_for_item(item_name, wiki_name=wiki_name, rev=revno, endpoint=endpoint)
+        endpoint, rev, query = self._get_do_rev(input.query)
+        url = url_for_item(item_name, wiki_name=wiki_name, rev=rev, endpoint=endpoint)
         link = Iri(url, query=query, fragment=input.fragment)
         elem.set(self._tag_xlink_href, link)
 
@@ -172,8 +170,8 @@ class ConverterExternOutput(ConverterBase):
                 elem.set(html.class_, 'moin-nonexistent')
         else:
             item_name = unicode(page.path[1:])
-        endpoint, revno, query = self._get_do_rev(input.query)
-        url = url_for_item(item_name, rev=revno, endpoint=endpoint)
+        endpoint, rev, query = self._get_do_rev(input.query)
+        url = url_for_item(item_name, rev=rev, endpoint=endpoint)
         link = Iri(url, query=query, fragment=input.fragment)
         elem.set(self._tag_xlink_href, link)
 

@@ -68,11 +68,12 @@ from MoinMoin.util.send_file import send_file
 from MoinMoin.util.interwiki import url_for_item
 from MoinMoin.storage.error import NoSuchItemError, NoSuchRevisionError, AccessDeniedError, \
                                    StorageError
-from MoinMoin.config import UUID, NAME, NAME_OLD, NAME_EXACT, WIKINAME, MTIME, REVERTED_TO, ACL, \
+from MoinMoin.config import NAME, NAME_OLD, NAME_EXACT, WIKINAME, MTIME, REVERTED_TO, ACL, \
                             IS_SYSITEM, SYSITEM_VERSION,  USERGROUP, SOMEDICT, \
                             CONTENTTYPE, SIZE, LANGUAGE, ITEMLINKS, ITEMTRANSCLUSIONS, \
                             TAGS, ACTION, ADDRESS, HOSTNAME, USERID, EXTRA, COMMENT, \
-                            HASH_ALGORITHM, CONTENTTYPE_GROUPS
+                            HASH_ALGORITHM, CONTENTTYPE_GROUPS, ITEMID, REVID, DATAID, \
+                            CURRENT, PARENTID
 
 COLS = 80
 ROWS_DATA = 20
@@ -145,16 +146,10 @@ def conv_serialize(doc, namespaces):
 class DummyRev(dict):
     """ if we have no stored Revision, we use this dummy """
     def __init__(self, item, contenttype):
-        self[CONTENTTYPE] = contenttype
         self.item = item
-        self.timestamp = 0
-        self.revno = None
-    def read(self, size=-1):
-        return ''
-    def seek(self, offset, whence=0):
-        pass
-    def tell(self):
-        return 0
+        self.meta = {CONTENTTYPE: contenttype}
+        self.data = StringIO('')
+        self.revid = None
 
 
 class DummyItem(object):
@@ -172,18 +167,16 @@ class Item(object):
         return cls(name, contenttype=unicode(contenttype), **kw)
 
     @classmethod
-    def create(cls, name=u'', contenttype=None, rev_no=None, item=None):
-        if rev_no is None:
-            rev_no = -1
+    def create(cls, name=u'', contenttype=None, rev_id=CURRENT, item=None):
         if contenttype is None:
             contenttype = u'application/x-nonexistent'
 
-        try:
+        if 1: # try:
             if item is None:
-                item = flaskg.storage.get_item(name)
+                item = flaskg.storage[name]
             else:
                 name = item.name
-        except NoSuchItemError:
+        if not item: # except NoSuchItemError:
             logging.debug("No such item: %r" % name)
             item = DummyItem(name)
             rev = DummyRev(item, contenttype)
@@ -191,20 +184,20 @@ class Item(object):
         else:
             logging.debug("Got item: %r" % name)
             try:
-                rev = item.get_revision(rev_no)
+                rev = item.get_revision(rev_id)
                 contenttype = u'application/octet-stream' # it exists
-            except NoSuchRevisionError:
+            except KeyError: # NoSuchRevisionError:
                 try:
-                    rev = item.get_revision(-1) # fall back to current revision
+                    rev = item.get_revision(CURRENT) # fall back to current revision
                     # XXX add some message about invalid revision
-                except NoSuchRevisionError:
+                except KeyError: # NoSuchRevisionError:
                     logging.debug("Item %r has no revisions." % name)
                     rev = DummyRev(item, contenttype)
                     logging.debug("Item %r, created dummy revision with contenttype %r" % (name, contenttype))
-            logging.debug("Got item %r, revision: %r" % (name, rev_no))
-        contenttype = rev.get(CONTENTTYPE) or contenttype # use contenttype in case our metadata does not provide CONTENTTYPE
+            logging.debug("Got item %r, revision: %r" % (name, rev_id))
+        contenttype = rev.meta.get(CONTENTTYPE) or contenttype # use contenttype in case our metadata does not provide CONTENTTYPE
         logging.debug("Item %r, got contenttype %r from revision meta" % (name, contenttype))
-        logging.debug("Item %r, rev meta dict: %r" % (name, dict(rev)))
+        #logging.debug("Item %r, rev meta dict: %r" % (name, dict(rev.meta)))
 
         item = item_registry.get(name, Type(contenttype), rev=rev)
         logging.debug("ItemClass %r handles %r" % (item.__class__, contenttype))
@@ -216,7 +209,7 @@ class Item(object):
         self.contenttype = contenttype
 
     def get_meta(self):
-        return self.rev or {}
+        return self.rev.meta
     meta = property(fget=get_meta)
 
     def _render_meta(self):
@@ -229,7 +222,7 @@ class Item(object):
         """
         flaskg.clock.start('conv_in_dom')
         hash_name = HASH_ALGORITHM
-        hash_hexdigest = self.rev.get(hash_name)
+        hash_hexdigest = self.rev.meta.get(hash_name)
         if hash_hexdigest:
             cid = cache_key(usage="internal_representation",
                             hash_name=hash_name,
@@ -308,15 +301,15 @@ class Item(object):
 
     def _do_modify_show_templates(self):
         # call this if the item is still empty
-        rev_nos = []
+        rev_ids = []
         item_templates = self.get_templates(self.contenttype)
         return render_template('modify_show_template_selection.html',
                                item_name=self.name,
                                rev=self.rev,
                                contenttype=self.contenttype,
                                templates=item_templates,
-                               first_rev_no=rev_nos and rev_nos[0],
-                               last_rev_no=rev_nos and rev_nos[-1],
+                               first_rev_id=rev_ids and rev_ids[0],
+                               last_rev_id=rev_ids and rev_ids[-1],
                                meta_rendered='',
                                data_rendered='',
                               )
@@ -328,7 +321,7 @@ class Item(object):
                      NAME_OLD,
                      # are automatically implanted when saving
                      NAME,
-                     UUID,
+                     ITEMID, REVID, DATAID,
                      HASH_ALGORITHM,
                      SIZE,
                      COMMENT,
@@ -352,6 +345,17 @@ class Item(object):
             meta = self.meta_filter(meta)
         return json.dumps(meta, sort_keys=True, indent=2, ensure_ascii=False)
 
+    def prepare_meta_for_modify(self, meta):
+        """
+        transform the meta dict of the current revision into a meta dict
+        that can be used for savind next revision (after "modify").
+        """
+        meta = dict(meta)
+        revid = meta.pop(REVID, None)
+        if revid is not None:
+            meta[PARENTID] = revid
+        return meta
+
     def get_data(self):
         return '' # TODO create a better method for binary stuff
     data = property(fget=get_data)
@@ -363,10 +367,10 @@ class Item(object):
                 buf = content.read(bufsize)
                 if not buf:
                     break
-                new_rev.write(buf)
+                new_rev.data.write(buf)
                 written += len(buf)
         elif isinstance(content, str):
-            new_rev.write(content)
+            new_rev.data.write(content)
             written += len(content)
         else:
             raise StorageError("unsupported content object: %r" % content)
@@ -378,12 +382,11 @@ class Item(object):
         """
         old_item = self.rev.item
         flaskg.storage.copy_item(old_item, name=name)
-        current_rev = old_item.get_revision(-1)
+        current_rev = old_item.get_revision(CURRENT)
         # we just create a new revision with almost same meta/data to show up on RC
         self._save(current_rev, current_rev, name=name, action=u'COPY', comment=comment)
 
     def _rename(self, name, comment, action):
-        self.rev.item.rename(name)
         self._save(self.meta, self.data, name=name, action=action, comment=comment)
 
     def rename(self, name, comment=u''):
@@ -394,7 +397,7 @@ class Item(object):
 
     def delete(self, comment=u''):
         """
-        delete this item by moving it to the trashbin
+        delete this item
         """
         trash_prefix = u'Trash/' # XXX move to config
         now = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
@@ -411,10 +414,10 @@ class Item(object):
         # called from destroy UI/POST
         if destroy_item:
             # destroy complete item with all revisions, metadata, etc.
-            self.rev.item.destroy()
+            self.rev.item.destroy_all_revisions()
         else:
             # just destroy this revision
-            self.rev.destroy()
+            self.rev.item.destroy_revision(self.rev.revid)
 
     def modify(self):
         # called from modify UI/POST
@@ -455,59 +458,65 @@ class Item(object):
         comment = request.form.get('comment')
         return self._save(meta, data, contenttype_guessed=contenttype_guessed, comment=comment)
 
-    def _save(self, meta, data=None, name=None, action=u'SAVE', contenttype_guessed=None, comment=u''):
-        if name is None:
-            name = self.name
+    def _save(self, meta, data=None, name=None, action=u'SAVE', contenttype_guessed=None, comment=u'', overwrite=False):
         backend = flaskg.storage
+        storage_item = backend[self.name]
         try:
-            storage_item = backend.get_item(name)
-        except NoSuchItemError:
-            storage_item = backend.create_item(name)
-        try:
-            currentrev = storage_item.get_revision(-1)
-            rev_no = currentrev.revno
-            contenttype_current = currentrev.get(CONTENTTYPE)
-        except NoSuchRevisionError:
+            currentrev = storage_item.get_revision(CURRENT)
+            rev_id = currentrev.revid
+            contenttype_current = currentrev.meta.get(CONTENTTYPE)
+        except KeyError: # XXX was: NoSuchRevisionError:
             currentrev = None
-            rev_no = -1
+            rev_id = None
             contenttype_current = None
-        new_rev_no = rev_no + 1
-        newrev = storage_item.create_revision(new_rev_no)
-        for k, v in meta.iteritems():
-            # TODO Put metadata into newrev here for now. There should be a safer way
-            #      of input for this.
-            newrev[k] = v
+
+        meta = dict(meta) # we may get a read-only dict-like, copy it
 
         # we store the previous (if different) and current item name into revision metadata
         # this is useful for rename history and backends that use item uids internally
+        if name is None:
+            name = self.name
         oldname = meta.get(NAME)
         if oldname and oldname != name:
-            newrev[NAME_OLD] = oldname
-        newrev[NAME] = name
+            meta[NAME_OLD] = oldname
+        meta[NAME] = name
+
+        if comment:
+            meta[COMMENT] = unicode(comment)
+
+        if CONTENTTYPE not in meta:
+            # make sure we have CONTENTTYPE
+            meta[CONTENTTYPE] = unicode(contenttype_current or contenttype_guessed or 'application/octet-stream')
+
+        if ADDRESS not in meta:
+            meta[ADDRESS] = u'0.0.0.0' # TODO
+
+        if USERID not in meta and flaskg.user.valid:
+            meta[USERID] = flaskg.user.itemid
+
+        meta[ACTION] = unicode(action)
+
+        if not overwrite and REVID in meta:
+            # we usually want to create a new revision, thus we must remove the existing REVID
+            del meta[REVID]
 
         if data is None:
             if currentrev is not None:
                 # we don't have (new) data, just copy the old one.
                 # a valid usecase of this is to just edit metadata.
-                data = currentrev
+                data = currentrev.data
             else:
                 data = ''
-        size = self._write_stream(data, newrev)
 
-        # XXX if meta is from old revision, and user did not give a non-empty
-        # XXX comment, re-using the old rev's comment is wrong behaviour:
-        comment = unicode(comment or meta.get(COMMENT, ''))
-        if comment:
-            newrev[COMMENT] = comment
+        if isinstance(data, unicode):
+            data = data.encode(config.charset)
 
-        if CONTENTTYPE not in newrev:
-            # make sure we have CONTENTTYPE
-            newrev[CONTENTTYPE] = unicode(contenttype_current or contenttype_guessed or 'application/octet-stream')
+        if isinstance(data, str):
+            data = StringIO(data)
 
-        newrev[ACTION] = unicode(action)
-        storage_item.commit()
+        newrev = storage_item.store_revision(meta, data, overwrite=overwrite)
         item_modified.send(app._get_current_object(), item_name=name)
-        return new_rev_no, size
+        return newrev.revid, newrev.meta[SIZE]
 
     def get_index(self):
         """ create an index of sub items of this item """
@@ -519,11 +528,11 @@ class Item(object):
             # that has all wiki items as sub items
             prefix = u''
             query = Term(WIKINAME, app.cfg.interwikiname)
-        results = flaskg.storage.search(query, all_revs=False, sortedby=NAME_EXACT, limit=None)
         # We only want the sub-item part of the item names, not the whole item objects.
         prefix_len = len(prefix)
-        items = [(result[NAME], result[NAME][prefix_len:], result[CONTENTTYPE])
-                 for result in results]
+        revs = flaskg.storage.search(query, all_revs=False, sortedby=NAME_EXACT, limit=None)
+        items = [(rev.meta[NAME], rev.meta[NAME][prefix_len:], rev.meta[CONTENTTYPE])
+                 for rev in revs]
         return items
 
     def flat_index(self, startswith=None, selected_groups=None):
@@ -649,7 +658,7 @@ There is no help, you're doomed!
     # XXX reads item rev data into memory!
     def get_data(self):
         if self.rev is not None:
-            return self.rev.read()
+            return self.rev.data.read()
         else:
             return ''
     data = property(fget=get_data)
@@ -663,8 +672,8 @@ There is no help, you're doomed!
         if contenttype is not None:
             terms.append(Term(CONTENTTYPE, contenttype))
         query = And(terms)
-        results = flaskg.storage.search(query, all_revs=False, sortedby=NAME_EXACT, limit=None)
-        return [result[NAME] for result in results]
+        revs = flaskg.storage.search(query, all_revs=False, sortedby=NAME_EXACT, limit=None)
+        return [rev.meta[NAME] for rev in revs]
 
     def do_modify(self, contenttype, template_name):
         # XXX think about and add item template support
@@ -672,15 +681,13 @@ There is no help, you're doomed!
         #    return self._do_modify_show_templates()
         from MoinMoin.apps.frontend.views import CommentForm
         class ModifyForm(CommentForm):
-            rev = Integer.using(optional=False)
             meta_text = String.using(optional=False).with_properties(placeholder=L_("MetaData (JSON)")).validated_by(ValidJSON())
             data_file = FileStorage.using(optional=True, label=L_('Upload file:'))
 
         if request.method == 'GET':
             form = ModifyForm.from_defaults()
             TextCha(form).amend_form()
-            form['meta_text'] = self.meta_dict_to_text(self.meta)
-            form['rev'] = self.rev.revno if self.rev.revno is not None else -1
+            form['meta_text'] = self.meta_dict_to_text(self.prepare_meta_for_modify(self.meta))
         elif request.method == 'POST':
             form = ModifyForm.from_flat(request.form.items() + request.files.items())
             TextCha(form).amend_form()
@@ -707,7 +714,7 @@ There is no help, you're doomed!
 
     def _render_data_diff(self, oldrev, newrev):
         hash_name = HASH_ALGORITHM
-        if oldrev[hash_name] == newrev[hash_name]:
+        if oldrev.meta[hash_name] == newrev.meta[hash_name]:
             return _("The items have the same data hash code (that means they very likely have the same data).")
         else:
             return _("The items have different data.")
@@ -720,7 +727,7 @@ There is no help, you're doomed!
                  contenttype=request.values.get('contenttype'))
 
     def do_get(self, force_attachment=False, mimetype=None):
-        hash = self.rev.get(HASH_ALGORITHM)
+        hash = self.rev.meta.get(HASH_ALGORITHM)
         if is_resource_modified(request.environ, hash): # use hash as etag
             return self._do_get_modified(hash, force_attachment=force_attachment, mimetype=mimetype)
         else:
@@ -740,13 +747,13 @@ There is no help, you're doomed!
             rev = self.rev
             filename = rev.item.name
             try:
-                mimestr = rev[CONTENTTYPE]
+                mimestr = rev.meta[CONTENTTYPE]
             except KeyError:
                 mt = MimeType(filename=filename)
             else:
                 mt = MimeType(mimestr=mimestr)
-            content_length = rev[SIZE]
-            file_to_send = rev
+            content_length = rev.meta[SIZE]
+            file_to_send = rev.data
         if mimetype:
             content_type = mimetype
         else:
@@ -778,8 +785,8 @@ class TarMixin(object):
         """
         list tar file contents (member file names)
         """
-        self.rev.seek(0)
-        tf = tarfile.open(fileobj=self.rev, mode='r')
+        self.rev.data.seek(0)
+        tf = tarfile.open(fileobj=self.rev.data, mode='r')
         return tf.getnames()
 
     def get_member(self, name):
@@ -788,8 +795,8 @@ class TarMixin(object):
 
         :param name: name of the data in the container file
         """
-        self.rev.seek(0)
-        tf = tarfile.open(fileobj=self.rev, mode='r')
+        self.rev.data.seek(0)
+        tf = tarfile.open(fileobj=self.rev.data, mode='r')
         return tf.extractfile(name)
 
     def put_member(self, name, content, content_length, expected_members):
@@ -855,8 +862,8 @@ class ZipMixin(object):
         """
         list zip file contents (member file names)
         """
-        self.rev.seek(0)
-        zf = zipfile.ZipFile(self.rev, mode='r')
+        self.rev.data.seek(0)
+        zf = zipfile.ZipFile(self.rev.data, mode='r')
         return zf.namelist()
 
     def get_member(self, name):
@@ -865,8 +872,8 @@ class ZipMixin(object):
 
         :param name: name of the data in the zip file
         """
-        self.rev.seek(0)
-        zf = zipfile.ZipFile(self.rev, mode='r')
+        self.rev.data.seek(0)
+        zf = zipfile.ZipFile(self.rev.data, mode='r')
         return zf.open(name, mode='r')
 
     def put_member(self, name, content, content_length, expected_members):
@@ -930,7 +937,7 @@ class TransformableBitmapImage(RenderableBitmapImage):
             from PIL import Image as PILImage
         except ImportError:
             # no PIL, we can't do anything, we just output the revision data as is
-            return content_type, self.rev.read()
+            return content_type, self.rev.data.read()
 
         if content_type == 'image/jpeg':
             output_type = 'JPEG'
@@ -942,7 +949,7 @@ class TransformableBitmapImage(RenderableBitmapImage):
             raise ValueError("content_type %r not supported" % content_type)
 
         # revision obj has read() seek() tell(), thus this works:
-        image = PILImage.open(self.rev)
+        image = PILImage.open(self.rev.data)
         image.load()
 
         try:
@@ -991,7 +998,7 @@ class TransformableBitmapImage(RenderableBitmapImage):
         if width or height or transpose != 1:
             # resize requested, XXX check ACL behaviour! XXX
             hash_name = HASH_ALGORITHM
-            hash_hexdigest = self.rev[hash_name]
+            hash_hexdigest = self.rev.meta[hash_name]
             cid = cache_key(usage="ImageTransform",
                             hash_name=hash_name,
                             hash_hexdigest=hash_hexdigest,
@@ -1001,7 +1008,7 @@ class TransformableBitmapImage(RenderableBitmapImage):
                 if mimetype:
                     content_type = mimetype
                 else:
-                    content_type = self.rev[CONTENTTYPE]
+                    content_type = self.rev.meta[CONTENTTYPE]
                 size = (width or 99999, height or 99999)
                 content_type, data = self._transform(content_type, size=size, transpose_op=transpose)
                 headers = wikiutil.file_headers(content_type=content_type, content_length=len(data))
@@ -1017,21 +1024,21 @@ class TransformableBitmapImage(RenderableBitmapImage):
         if PIL is None:
             # no PIL, we can't do anything, we just call the base class method
             return super(TransformableBitmapImage, self)._render_data_diff(oldrev, newrev)
-        url = url_for('frontend.diffraw', item_name=self.name, rev1=oldrev.revno, rev2=newrev.revno)
+        url = url_for('frontend.diffraw', item_name=self.name, rev1=oldrev.revid, rev2=newrev.revid)
         return Markup('<img src="%s" />' % escape(url))
 
     def _render_data_diff_raw(self, oldrev, newrev):
         hash_name = HASH_ALGORITHM
         cid = cache_key(usage="ImageDiff",
                         hash_name=hash_name,
-                        hash_old=oldrev[hash_name],
-                        hash_new=newrev[hash_name])
+                        hash_old=oldrev.meta[hash_name],
+                        hash_new=newrev.meta[hash_name])
         c = app.cache.get(cid)
         if c is None:
             if PIL is None:
                 abort(404) # TODO render user friendly error image
 
-            content_type = newrev[CONTENTTYPE]
+            content_type = newrev.meta[CONTENTTYPE]
             if content_type == 'image/jpeg':
                 output_type = 'JPEG'
             elif content_type == 'image/png':
@@ -1092,24 +1099,21 @@ class Text(Binary):
 
     def _render_data_diff(self, oldrev, newrev):
         from MoinMoin.util.diff_html import diff
-        old_text = self.data_storage_to_internal(oldrev.read())
-        new_text = self.data_storage_to_internal(newrev.read())
-        storage_item = flaskg.storage.get_item(self.name)
-        revs = storage_item.list_revisions()
+        old_text = self.data_storage_to_internal(oldrev.data.read())
+        new_text = self.data_storage_to_internal(newrev.data.read())
+        storage_item = flaskg.storage[self.name]
         diffs = [(d[0], Markup(d[1]), d[2], Markup(d[3])) for d in diff(old_text, new_text)]
         return Markup(render_template('diff_text.html',
                                       item_name=self.name,
                                       oldrev=oldrev,
                                       newrev=newrev,
-                                      min_revno=revs[0],
-                                      max_revno=revs[-1],
                                       diffs=diffs,
                                      ))
 
     def _render_data_diff_text(self, oldrev, newrev):
         from MoinMoin.util import diff_text
-        oldlines = self.data_storage_to_internal(oldrev.read()).split('\n')
-        newlines = self.data_storage_to_internal(newrev.read()).split('\n')
+        oldlines = self.data_storage_to_internal(oldrev.data.read()).split('\n')
+        newlines = self.data_storage_to_internal(newrev.data.read()).split('\n')
         difflines = diff_text.diff(oldlines, newlines)
         return '\n'.join(difflines)
 
@@ -1131,7 +1135,6 @@ class Text(Binary):
         #    return self._do_modify_show_templates()
         from MoinMoin.apps.frontend.views import CommentForm
         class ModifyForm(CommentForm):
-            rev = Integer.using(optional=False)
             meta_text = String.using(optional=False).with_properties(placeholder=L_("MetaData (JSON)")).validated_by(ValidJSON())
             data_text = String.using(optional=True).with_properties(placeholder=L_("Type your text here"))
             data_file = FileStorage.using(optional=True, label=L_('Upload file:'))
@@ -1146,8 +1149,7 @@ class Text(Binary):
                 form['data_text'] = self.data_storage_to_internal(item.data)
             else:
                 form['data_text'] = self.data_storage_to_internal(self.data)
-            form['meta_text'] = self.meta_dict_to_text(self.meta)
-            form['rev'] = self.rev.revno if self.rev.revno is not None else -1
+            form['meta_text'] = self.meta_dict_to_text(self.prepare_meta_for_modify(self.meta))
         elif request.method == 'POST':
             form = ModifyForm.from_flat(request.form.items() + request.files.items())
             TextCha(form).amend_form()
@@ -1299,7 +1301,6 @@ class TWikiDraw(TarMixin, Image):
         #    return self._do_modify_show_templates()
         from MoinMoin.apps.frontend.views import CommentForm
         class ModifyForm(CommentForm):
-            rev = Integer.using(optional=False)
             # XXX as the "saving" POSTs come from TWikiDraw (not the form), editing meta_text doesn't work
             meta_text = String.using(optional=False).with_properties(placeholder=L_("MetaData (JSON)")).validated_by(ValidJSON())
             data_file = FileStorage.using(optional=True, label=L_('Upload file:'))
@@ -1308,8 +1309,7 @@ class TWikiDraw(TarMixin, Image):
             form = ModifyForm.from_defaults()
             TextCha(form).amend_form()
             # XXX currently this is rather pointless, as the form does not get POSTed:
-            form['meta_text'] = self.meta_dict_to_text(self.meta)
-            form['rev'] = self.rev.revno if self.rev.revno is not None else -1
+            form['meta_text'] = self.meta_dict_to_text(self.prepare_meta_for_modify(self.meta))
         elif request.method == 'POST':
             # this POST comes directly from TWikiDraw (not from Browser), thus no validation
             try:
@@ -1391,7 +1391,6 @@ class AnyWikiDraw(TarMixin, Image):
         #    return self._do_modify_show_templates()
         from MoinMoin.apps.frontend.views import CommentForm
         class ModifyForm(CommentForm):
-            rev = Integer.using(optional=False)
             # XXX as the "saving" POSTs come from AnyWikiDraw (not the form), editing meta_text doesn't work
             meta_text = String.using(optional=False).with_properties(placeholder=L_("MetaData (JSON)")).validated_by(ValidJSON())
             data_file = FileStorage.using(optional=True, label=L_('Upload file:'))
@@ -1400,8 +1399,7 @@ class AnyWikiDraw(TarMixin, Image):
             form = ModifyForm.from_defaults()
             TextCha(form).amend_form()
             # XXX currently this is rather pointless, as the form does not get POSTed:
-            form['meta_text'] = self.meta_dict_to_text(self.meta)
-            form['rev'] = self.rev.revno if self.rev.revno is not None else -1
+            form['meta_text'] = self.meta_dict_to_text(self.prepare_meta_for_modify(self.meta))
         elif request.method == 'POST':
             # this POST comes directly from AnyWikiDraw (not from Browser), thus no validation
             try:
@@ -1479,7 +1477,6 @@ class SvgDraw(TarMixin, Image):
         #    return self._do_modify_show_templates()
         from MoinMoin.apps.frontend.views import CommentForm
         class ModifyForm(CommentForm):
-            rev = Integer.using(optional=False)
             # XXX as the "saving" POSTs come from SvgDraw (not the form), editing meta_text doesn't work
             meta_text = String.using(optional=False).with_properties(placeholder=L_("MetaData (JSON)")).validated_by(ValidJSON())
             data_file = FileStorage.using(optional=True, label=L_('Upload file:'))
@@ -1488,8 +1485,7 @@ class SvgDraw(TarMixin, Image):
             form = ModifyForm.from_defaults()
             TextCha(form).amend_form()
             # XXX currently this is rather pointless, as the form does not get POSTed:
-            form['meta_text'] = self.meta_dict_to_text(self.meta)
-            form['rev'] = self.rev.revno if self.rev.revno is not None else -1
+            form['meta_text'] = self.meta_dict_to_text(self.prepare_meta_for_modify(self.meta))
         elif request.method == 'POST':
             # this POST comes directly from SvgDraw (not from Browser), thus no validation
             try:

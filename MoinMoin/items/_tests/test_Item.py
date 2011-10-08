@@ -47,11 +47,10 @@ class TestItem(object):
         item._save(meta, data, comment=comment)
         # check save result
         item = Item.create(name)
-        saved_meta, saved_data = dict(item.meta), item.data
+        saved_meta, saved_data = item.meta, item.data
         assert saved_meta[CONTENTTYPE] == contenttype
         assert saved_meta[COMMENT] == comment
         assert saved_data == data
-        assert item.rev.revno == 0
 
         data = rev1_data = data * 10000
         comment = comment + u' again'
@@ -63,7 +62,6 @@ class TestItem(object):
         assert saved_meta[CONTENTTYPE] == contenttype
         assert saved_meta[COMMENT] == comment
         assert saved_data == data
-        assert item.rev.revno == 1
 
         data = ''
         comment = 'saved empty data'
@@ -75,11 +73,6 @@ class TestItem(object):
         assert saved_meta[CONTENTTYPE] == contenttype
         assert saved_meta[COMMENT] == comment
         assert saved_data == data
-        assert item.rev.revno == 2
-
-        # access old revision
-        item = Item.create(name, rev_no=1)
-        assert item.data == rev1_data
 
     def testIndex(self):
         # create a toplevel and some sub-items
@@ -123,17 +116,17 @@ class TestItem(object):
     def test_meta_filter(self):
         name = u'Test_item'
         contenttype = u'text/plain;charset=utf-8'
-        meta = {'test_key': 'test_val', CONTENTTYPE: contenttype, 'name': 'test_name', 'uuid': 'test_uuid'}
+        meta = {'test_key': 'test_val', CONTENTTYPE: contenttype, 'name': 'test_name'}
         item = Item.create(name)
         result = Item.meta_filter(item, meta)
-        # keys like NAME and UUID are filtered
+        # keys like NAME, ITEMID, REVID, DATAID are filtered
         expected = {'test_key': 'test_val', CONTENTTYPE: contenttype}
         assert result == expected
 
     def test_meta_dict_to_text(self):
         name = u'Test_item'
         contenttype = u'text/plain;charset=utf-8'
-        meta = {'test_key': 'test_val', CONTENTTYPE: contenttype, 'name': 'test_name', 'uuid': 'test_uuid'}
+        meta = {'test_key': 'test_val', CONTENTTYPE: contenttype, 'name': 'test_name'}
         item = Item.create(name)
         result = Item.meta_dict_to_text(item, meta)
         expected = '{\n  "contenttype": "text/plain;charset=utf-8", \n  "test_key": "test_val"\n}'
@@ -142,7 +135,7 @@ class TestItem(object):
     def test_meta_text_to_dict(self):
         name = u'Test_item'
         contenttype = u'text/plain;charset=utf-8'
-        text = '{\n  "contenttype": "text/plain;charset=utf-8", \n  "test_key": "test_val", \n "name": "test_name", \n "uuid": "test_uuid"\n}'
+        text = '{\n  "contenttype": "text/plain;charset=utf-8", \n  "test_key": "test_val", \n "name": "test_name" \n}'
         item = Item.create(name)
         result = Item.meta_text_to_dict(item, text)
         expected = {'test_key': 'test_val', CONTENTTYPE: contenttype}
@@ -154,36 +147,44 @@ class TestItem(object):
         data = 'test_data'
         meta = {'test_key': 'test_value', CONTENTTYPE: contenttype}
         comment = u'saved it'
-        become_trusted()
         item = Item.create(name)
         item._save(meta, data, comment=comment)
-        item = Item.create(name)
         # item and its contents before renaming
+        item = Item.create(name)
         assert item.name == u'Test_Item'
         assert item.meta['comment'] == u'saved it'
-        Item.rename(item, u'Test_new_Item', comment=u'renamed')
         new_name = u'Test_new_Item'
+        item.rename(new_name, comment=u'renamed')
+        # item at original name and its contents after renaming
+        item = Item.create(name)
+        assert item.name == u'Test_Item'
+        # this should be a fresh, new item, NOT the stuff we renamed:
+        assert item.meta[CONTENTTYPE] == 'application/x-nonexistent'
+        # item at new name and its contents after renaming
         item = Item.create(new_name)
-        # item and its contents after renaming
         assert item.name == u'Test_new_Item'
-        assert item.meta['comment'] == u'renamed'
         assert item.meta['name_old'] == u'Test_Item'
+        assert item.meta['comment'] == u'renamed'
         assert item.data == u'test_data'
 
     def test_delete(self):
-        name = u'Test_Item'
+        name = u'Test_Item2'
         contenttype = u'text/plain;charset=utf-8'
         data = 'test_data'
         meta = {'test_key': 'test_value', CONTENTTYPE: contenttype}
         comment = u'saved it'
         item = Item.create(name)
         item._save(meta, data, comment=comment)
+        # item and its contents before deleting
         item = Item.create(name)
-        item.delete(u'item deleted')
+        assert item.name == u'Test_Item2'
+        assert item.meta['comment'] == u'saved it'
+        item.delete(u'deleted')
         # item and its contents after deletion
         item = Item.create(name)
-        assert item.name == u'Test_Item'
-        assert item.meta == {'contenttype': 'application/x-nonexistent'}
+        assert item.name == u'Test_Item2'
+        # this should be a fresh, new item, NOT the stuff we deleted:
+        assert item.meta[CONTENTTYPE] == 'application/x-nonexistent'
 
     def test_revert(self):
         name = u'Test_Item'
@@ -283,9 +284,6 @@ class TestTarItems(object):
         filecontent = 'AAAABBBB'
         content_length = len(filecontent)
         item.put_member('example1.txt', filecontent, content_length, expected_members=members)
-
-        item = flaskg.storage.get_item(item_name)
-        assert item.next_revno == 2
 
         item = Item.create(item_name, contenttype=u'application/x-tar')
         assert item.get_member('example1.txt').read() == filecontent

@@ -1,194 +1,111 @@
-# Copyright: 2008-2011 MoinMoin:ThomasWaldmann
+# Copyright: 2011 MoinMoin:ThomasWaldmann
 # License: GNU GPL v2 (or any later version), see LICENSE.txt for details.
 
 """
-MoinMoin - file server backend
+MoinMoin - fileserver backend, exposing part of the filesystem (read-only)
 
-You can use this backend to directly get read-only access to your
-wiki server's filesystem.
+Files show as single revision items.
 
-TODO: nearly working, but needs more work at other places,
-      e.g. in the router backend, to be useful.
+  - metadata is made up from fs metadata + mimetype guessing
+  - data is read from the file
+
+Directories create a virtual directory item, listing the files in that
+directory.
 """
 
 
-import os, stat
+from __future__ import absolute_import, division
+
+import os
+import errno
+import stat
 from StringIO import StringIO
 
-from MoinMoin import log
-logging = log.getLogger(__name__)
+from MoinMoin.config import MTIME, SIZE, CONTENTTYPE
+from . import BackendBase
 
-from MoinMoin import config
 
-from MoinMoin.storage import Backend, Item, StoredRevision
-from MoinMoin.storage.error import NoSuchItemError, NoSuchRevisionError
-from MoinMoin.util.mimetype import MimeType
-
-from MoinMoin.config import NAME, ACL, CONTENTTYPE, ACTION, COMMENT, MTIME, SIZE, HASH_ALGORITHM
-
-class FSError(Exception):
-    """ file serving backend error """
-
-class NoFileError(FSError):
-    """ tried to create a FileItem for a path that is not a file """
-
-class NoDirError(FSError):
-    """ tried to create a DirItem for a path that is not a directory """
-
-class FileServerBackend(Backend):
+class Backend(BackendBase):
     """
-    File Server Backend - serves files directly from host's filesystem
-
-    For method docstrings, please see the "Backend" base class.
+    exposes part of the filesystem (read-only)
     """
-    def __init__(self, root_dir):
+    @classmethod
+    def from_uri(cls, uri):
+        return cls(uri)
+
+    def __init__(self, path):
         """
-        Initialise file serving backend.
-
-        :type root_dir: unicode
-        :param root_dir: root directory below which we serve files
+        :param path: base directory (all files/dirs below will be exposed)
         """
-        root_dir = root_dir.rstrip('/')
-        assert root_dir
-        self.root_dir = unicode(root_dir)
+        self.path = unicode(path)
 
-    def _item2path(self, itemname):
-        # XXX check whether ../.. precautions are needed,
-        # looks like not, because moin sanitizes the item name before
-        # calling the storage code
-        return os.path.join(self.root_dir, itemname)
+    def open(self):
+        pass
 
-    def _path2item(self, path):
-        root = self.root_dir
+    def close(self):
+        pass
+
+    def _mkpath(self, key):
+        # XXX unsafe keys?
+        return os.path.join(self.path, key)
+
+    def _mkkey(self, path):
+        root = self.path
         assert path.startswith(root)
-        return path[len(root)+1:]
+        key = path[len(root)+1:]
+        return key
 
-    def iter_items_noindex(self):
-        for dirpath, dirnames, filenames in os.walk(self.root_dir):
-            name = self._path2item(dirpath)
-            if name:
-                # XXX currently there is an issue with whoosh indexing if fileserver
-                # backend is mounted at / and the item name is empty, resulting in a
-                # completely empty item name - avoid this for now.
-                yield DirItem(self, name)
+    def __iter__(self):
+        # note: instead of just yielding the relative <path>, yield <path>/<mtime>,
+        # so if the file is updated, the revid will change (and the indexer's
+        # update() method can efficiently update the index).
+        for dirpath, dirnames, filenames in os.walk(self.path):
+            key = self._mkkey(dirpath)
+            if key:
+                yield key
             for filename in filenames:
-                try:
-                    item = FileItem(self, self._path2item(os.path.join(dirpath, filename)))
-                except (NoFileError, NoSuchItemError):
-                    pass  # not a regular file, maybe socket or ...
-                else:
-                    yield item
+                yield self._mkkey(os.path.join(dirpath, filename))
 
-    iteritems = iter_items_noindex
-
-    def get_item(self, itemname):
+    def _get_meta(self, fn):
+        path = self._mkpath(fn)
         try:
-            return FileItem(self, itemname)
-        except NoFileError:
-            try:
-                return DirItem(self, itemname)
-            except NoDirError:
-                raise NoSuchItemError()
-
-    def _get_item_metadata(self, item):
-        return item._fs_meta
-
-    def _list_revisions(self, item):
-        return item._fs_revisions
-
-    def _get_revision(self, item, revno):
-        if isinstance(item, FileItem):
-            return FileRevision(item, revno)
-        elif isinstance(item, DirItem):
-            return DirRevision(item, revno)
-        else:
+            st = os.stat(path)
+        except OSError as e:
+            if e.errno == errno.ENOENT:
+                raise KeyError(fn)
             raise
+        meta = {}
+        meta[MTIME] = int(st.st_mtime) # use int, not float
+        if stat.S_ISDIR(st.st_mode):
+            # directory
+            # we create a virtual wiki page listing links to subitems:
+            ct = 'text/x.moin.wiki;charset=utf-8'
+            size = 0
+        elif stat.S_ISREG(st.st_mode):
+            # normal file
+            # TODO: real mimetype guessing
+            if fn.endswith('.png'):
+                ct = 'image/png'
+            elif fn.endswith('.txt'):
+                ct = 'text/plain'
+            else:
+                ct = 'application/octet-stream'
+            size = int(st.st_size) # use int instead of long
+        else:
+            # symlink, device file, etc.
+            ct = 'application/octet-stream'
+            size = 0
+        meta[CONTENTTYPE] = ct
+        meta[SIZE] = size
+        return meta
 
-    def _get_revision_metadata(self, rev):
-        return rev._fs_meta
-
-    def _read_revision_data(self, rev, chunksize):
-        if rev._fs_data_file is None:
-            rev._fs_data_file = open(rev._fs_data_fname, 'rb') # XXX keeps file open as long as rev exists
-        return rev._fs_data_file.read(chunksize)
-
-    def _seek_revision_data(self, rev, position, mode):
-        if rev._fs_data_file is None:
-            rev._fs_data_file = open(rev._fs_data_fname, 'rb') # XXX keeps file open as long as rev exists
-        return rev._fs_data_file.seek(position, mode)
-
-    def _tell_revision_data(self, rev):
-        if rev._fs_data_file is None:
-            rev._fs_data_file = open(rev._fs_data_fname, 'rb') # XXX keeps file open as long as rev exists
-        return rev._fs_data_file.tell()
-
-
-# Specialized Items/Revisions
-
-class FileDirItem(Item):
-    """ A filesystem file or directory """
-    def __init__(self, backend, name):
-        Item.__init__(self, backend, name)
-        filepath = backend._item2path(name)
-        try:
-            self._fs_stat = os.stat(filepath)
-        except OSError as err:
-            raise NoSuchItemError("No such item, %r" % name)
-        self._fs_revisions = [0] # there is only 1 revision of each file/dir
-        self._fs_meta = {} # no item level metadata
-        self._fs_filepath = filepath
-
-class DirItem(FileDirItem):
-    """ A filesystem directory """
-    def __init__(self, backend, name):
-        FileDirItem.__init__(self, backend, name)
-        if not stat.S_ISDIR(self._fs_stat.st_mode):
-            raise NoDirError("Item is not a directory: %r" % name)
-
-class FileItem(FileDirItem):
-    """ A filesystem file """
-    def __init__(self, backend, name):
-        FileDirItem.__init__(self, backend, name)
-        if not stat.S_ISREG(self._fs_stat.st_mode):
-            raise NoFileError("Item is not a regular file: %r" % name)
-
-
-class FileDirRevision(StoredRevision):
-    """ A filesystem file or directory """
-    def __init__(self, item, revno):
-        if revno > 0:
-            raise NoSuchRevisionError('Item %r has no revision %d (filesystem items just have revno 0)!' %
-                    (item.name, revno))
-        if revno == -1:
-            revno = 0
-        StoredRevision.__init__(self, item, revno)
-        filepath = item._fs_filepath
-        st = item._fs_stat
-        meta = { # make something up
-            NAME: item.name,
-            MTIME: int(st.st_mtime),
-            ACTION: u'SAVE',
-            SIZE: st.st_size,
-            HASH_ALGORITHM: u'' # XXX fake it, send_file needs it for etag and crashes ithout the hash
-        }
-        self._fs_meta = meta
-        self._fs_data_fname = filepath
-        self._fs_data_file = None
-
-class DirRevision(FileDirRevision):
-    """ A filesystem directory """
-    def __init__(self, item, revno):
-        FileDirRevision.__init__(self, item, revno)
-        self._fs_meta.update({
-            CONTENTTYPE: u'text/x.moin.wiki;charset=utf-8',
-        })
-        # create a directory "page" in wiki markup:
+    def _make_directory_page(self, path):
         try:
             dirs = []
             files = []
-            names = os.listdir(self._fs_data_fname)
+            names = os.listdir(path)
             for name in names:
-                filepath = os.path.join(self._fs_data_fname, name)
+                filepath = os.path.join(path, name)
                 if os.path.isdir(filepath):
                     dirs.append(name)
                 else:
@@ -199,17 +116,30 @@ class DirRevision(FileDirRevision):
             ]
             content.extend(u" * [[/%s|%s/]]" % (name, name) for name in sorted(dirs))
             content.extend(u" * [[/%s|%s]]" % (name, name) for name in sorted(files))
+            content.append(u"")
             content = u'\r\n'.join(content)
         except OSError as err:
             content = unicode(err)
-        self._fs_data_file = StringIO(content.encode(config.charset))
+        return content
 
-class FileRevision(FileDirRevision):
-    """ A filesystem file """
-    def __init__(self, item, revno):
-        FileDirRevision.__init__(self, item, revno)
-        contenttype = MimeType(filename=self._fs_data_fname).content_type()
-        self._fs_meta.update({
-            CONTENTTYPE: unicode(contenttype),
-        })
+    def _get_data(self, fn):
+        path = self._mkpath(fn)
+        try:
+            st = os.stat(path)
+            if stat.S_ISDIR(st.st_mode):
+                data = self._make_directory_page(path)
+                return StringIO(data.encode('utf-8'))
+            elif stat.S_ISREG(st.st_mode):
+                return open(path, 'rb')
+            else:
+                return StringIO('')
+        except (OSError, IOError) as e:
+            if e.errno == errno.ENOENT:
+                raise KeyError(fn)
+            raise
+
+    def retrieve(self, fn):
+        meta = self._get_meta(fn)
+        data = self._get_data(fn)
+        return meta, data
 

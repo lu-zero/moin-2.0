@@ -51,7 +51,7 @@ from MoinMoin.items import Item, NonExistent
 from MoinMoin.items import ROWS_META, COLS, ROWS_DATA
 from MoinMoin import config, user, util, wikiutil
 from MoinMoin.config import ACTION, COMMENT, WIKINAME, CONTENTTYPE, ITEMLINKS, ITEMTRANSCLUSIONS, NAME, NAME_EXACT, \
-                            CONTENTTYPE_GROUPS, MTIME, TAGS, REV_NO, CONTENT
+                            CONTENTTYPE_GROUPS, MTIME, TAGS, ITEMID, REVID, CURRENT, CONTENT
 from MoinMoin.util import crypto
 from MoinMoin.util.interwiki import url_for_item
 from MoinMoin.security.textcha import TextCha, TextChaizedForm, TextChaValid
@@ -107,7 +107,6 @@ Disallow: /+usersettings
 Disallow: /+login
 Disallow: /+logout
 Disallow: /+bookmark
-Disallow: /+diffsince/
 Disallow: /+diff/
 Disallow: /+diffraw/
 Disallow: /+search
@@ -155,7 +154,7 @@ def search():
         history = bool(request.values.get('history'))
         qp = flaskg.storage.query_parser([NAME_EXACT, NAME, CONTENT], all_revs=history)
         q = qp.parse(query)
-        with flaskg.storage.searcher(all_revs=history) as searcher:
+        with flaskg.storage.get_index(all_revs=history).searcher() as searcher:
             flaskg.clock.start('search')
             results = searcher.search(q, limit=100)
             flaskg.clock.stop('search')
@@ -189,25 +188,19 @@ def search():
     return html
 
 
-@frontend.route('/<itemname:item_name>', defaults=dict(rev=-1), methods=['GET'])
-@frontend.route('/+show/<int:rev>/<itemname:item_name>', methods=['GET'])
+@frontend.route('/<itemname:item_name>', defaults=dict(rev=CURRENT), methods=['GET'])
+@frontend.route('/+show/<rev>/<itemname:item_name>', methods=['GET'])
 def show_item(item_name, rev):
     flaskg.user.addTrail(item_name)
     item_displayed.send(app._get_current_object(),
                         item_name=item_name)
     try:
-        item = Item.create(item_name, rev_no=rev)
+        item = Item.create(item_name, rev_id=rev)
     except AccessDeniedError:
         abort(403)
-    show_revision = show_navigation = rev >= 0
-    # Note: rev.revno of DummyRev is None
-    first_rev = None
-    last_rev = None
-    if show_navigation:
-        rev_nos = item.rev.item.list_revisions()
-        if rev_nos:
-            first_rev = rev_nos[0]
-            last_rev = rev_nos[-1]
+    show_revision = rev != CURRENT
+    show_navigation = False # TODO
+    first_rev = last_rev = None # TODO
     if isinstance(item, NonExistent):
         status = 404
     else:
@@ -216,8 +209,8 @@ def show_item(item_name, rev):
                               item=item, item_name=item.name,
                               rev=item.rev,
                               contenttype=item.contenttype,
-                              first_rev_no=first_rev,
-                              last_rev_no=last_rev,
+                              first_rev_id=first_rev,
+                              last_rev_id=last_rev,
                               data_rendered=Markup(item._render_data()),
                               show_revision=show_revision,
                               show_navigation=show_navigation,
@@ -231,11 +224,11 @@ def redirect_show_item(item_name):
     return redirect(url_for_item(item_name))
 
 
-@frontend.route('/+dom/<int:rev>/<itemname:item_name>')
-@frontend.route('/+dom/<itemname:item_name>', defaults=dict(rev=-1))
+@frontend.route('/+dom/<rev>/<itemname:item_name>')
+@frontend.route('/+dom/<itemname:item_name>', defaults=dict(rev=CURRENT))
 def show_dom(item_name, rev):
     try:
-        item = Item.create(item_name, rev_no=rev)
+        item = Item.create(item_name, rev_id=rev)
     except AccessDeniedError:
         abort(403)
     if isinstance(item, NonExistent):
@@ -249,21 +242,21 @@ def show_dom(item_name, rev):
 
 
 # XXX this is just a temporary view to test the indexing converter
-@frontend.route('/+indexable/<int:rev>/<itemname:item_name>')
-@frontend.route('/+indexable/<itemname:item_name>', defaults=dict(rev=-1))
+@frontend.route('/+indexable/<rev>/<itemname:item_name>')
+@frontend.route('/+indexable/<itemname:item_name>', defaults=dict(rev=CURRENT))
 def indexable(item_name, rev):
-    from MoinMoin.converter import convert_to_indexable
-    item = flaskg.storage.get_item(item_name)
-    rev = item.get_revision(rev)
-    content = convert_to_indexable(rev)
+    from MoinMoin.storage.middleware.indexing import convert_to_indexable
+    item = flaskg.storage[item_name]
+    rev = item[rev]
+    content = convert_to_indexable(rev.meta, rev.data)
     return Response(content, 200, mimetype='text/plain')
 
 
-@frontend.route('/+highlight/<int:rev>/<itemname:item_name>')
-@frontend.route('/+highlight/<itemname:item_name>', defaults=dict(rev=-1))
+@frontend.route('/+highlight/<rev>/<itemname:item_name>')
+@frontend.route('/+highlight/<itemname:item_name>', defaults=dict(rev=CURRENT))
 def highlight_item(item_name, rev):
     try:
-        item = Item.create(item_name, rev_no=rev)
+        item = Item.create(item_name, rev_id=rev)
     except AccessDeniedError:
         abort(403)
     return render_template('highlight.html',
@@ -272,36 +265,36 @@ def highlight_item(item_name, rev):
                           )
 
 
-@frontend.route('/+meta/<itemname:item_name>', defaults=dict(rev=-1))
-@frontend.route('/+meta/<int:rev>/<itemname:item_name>')
+@frontend.route('/+meta/<itemname:item_name>', defaults=dict(rev=CURRENT))
+@frontend.route('/+meta/<rev>/<itemname:item_name>')
 def show_item_meta(item_name, rev):
     flaskg.user.addTrail(item_name)
     try:
-        item = Item.create(item_name, rev_no=rev)
+        item = Item.create(item_name, rev_id=rev)
     except AccessDeniedError:
         abort(403)
-    show_revision = show_navigation = rev >= 0
-    # Note: rev.revno of DummyRev is None
+    show_revision = rev != CURRENT
+    show_navigation = False # TODO
     first_rev = None
     last_rev = None
     if show_navigation:
-        rev_nos = item.rev.item.list_revisions()
-        if rev_nos:
-            first_rev = rev_nos[0]
-            last_rev = rev_nos[-1]
+        rev_ids = list(item.rev.item.iter_revs())
+        if rev_ids:
+            first_rev = rev_ids[0]
+            last_rev = rev_ids[-1]
     return render_template('meta.html',
                            item=item, item_name=item.name,
                            rev=item.rev,
                            contenttype=item.contenttype,
-                           first_rev_no=first_rev,
-                           last_rev_no=last_rev,
+                           first_rev_id=first_rev,
+                           last_rev_id=last_rev,
                            meta_rendered=Markup(item._render_meta()),
                            show_revision=show_revision,
                            show_navigation=show_navigation,
                           )
 
-@frontend.route('/+content/<int:rev>/<itemname:item_name>')
-@frontend.route('/+content/<itemname:item_name>', defaults=dict(rev=-1))
+@frontend.route('/+content/<rev>/<itemname:item_name>')
+@frontend.route('/+content/<itemname:item_name>', defaults=dict(rev=CURRENT))
 def content_item(item_name, rev):
     """ same as show_item, but we only show the content """
     # first check whether we have a valid search query:
@@ -312,7 +305,7 @@ def content_item(item_name, rev):
     item_displayed.send(app._get_current_object(),
                         item_name=item_name)
     try:
-        item = Item.create(item_name, rev_no=rev)
+        item = Item.create(item_name, rev_id=rev)
     except AccessDeniedError:
         abort(403)
     return render_template('content.html',
@@ -320,20 +313,20 @@ def content_item(item_name, rev):
                            data_rendered=Markup(item._render_data()),
                            )
 
-@frontend.route('/+get/<int:rev>/<itemname:item_name>')
-@frontend.route('/+get/<itemname:item_name>', defaults=dict(rev=-1))
+@frontend.route('/+get/<rev>/<itemname:item_name>')
+@frontend.route('/+get/<itemname:item_name>', defaults=dict(rev=CURRENT))
 def get_item(item_name, rev):
     try:
-        item = Item.create(item_name, rev_no=rev)
+        item = Item.create(item_name, rev_id=rev)
     except AccessDeniedError:
         abort(403)
     return item.do_get()
 
-@frontend.route('/+download/<int:rev>/<itemname:item_name>')
-@frontend.route('/+download/<itemname:item_name>', defaults=dict(rev=-1))
+@frontend.route('/+download/<rev>/<itemname:item_name>')
+@frontend.route('/+download/<itemname:item_name>', defaults=dict(rev=CURRENT))
 def download_item(item_name, rev):
     try:
-        item = Item.create(item_name, rev_no=rev)
+        item = Item.create(item_name, rev_id=rev)
         mimetype = request.values.get("mimetype")
     except AccessDeniedError:
         abort(403)
@@ -352,7 +345,7 @@ def convert_item(item_name):
     """
     contenttype = request.values.get('contenttype')
     try:
-        item = Item.create(item_name, rev_no=-1)
+        item = Item.create(item_name, rev_id=CURRENT)
     except AccessDeniedError:
         abort(403)
     # We don't care about the name of the converted object
@@ -419,10 +412,10 @@ class ContenttypeFilterForm(Form):
     submit = String.using(default=L_('Filter'), optional=True)
 
 
-@frontend.route('/+revert/<int:rev>/<itemname:item_name>', methods=['GET', 'POST'])
+@frontend.route('/+revert/<rev>/<itemname:item_name>', methods=['GET', 'POST'])
 def revert_item(item_name, rev):
     try:
-        item = Item.create(item_name, rev_no=rev)
+        item = Item.create(item_name, rev_id=rev)
     except AccessDeniedError:
         abort(403)
     if request.method == 'GET':
@@ -436,7 +429,7 @@ def revert_item(item_name, rev):
             return redirect(url_for_item(item_name))
     return render_template(item.revert_template,
                            item=item, item_name=item_name,
-                           rev_no=rev,
+                           rev_id=rev,
                            form=form,
                           )
 
@@ -573,18 +566,18 @@ def ajaxmodify(item_name):
     return redirect(url_for('.modify_item', item_name=newitem))
 
 
-@frontend.route('/+destroy/<int:rev>/<itemname:item_name>', methods=['GET', 'POST'])
+@frontend.route('/+destroy/<rev>/<itemname:item_name>', methods=['GET', 'POST'])
 @frontend.route('/+destroy/<itemname:item_name>', methods=['GET', 'POST'], defaults=dict(rev=None))
 def destroy_item(item_name, rev):
     if rev is None:
         # no revision given
-        _rev = -1 # for item creation
+        _rev = CURRENT # for item creation
         destroy_item = True
     else:
         _rev = rev
         destroy_item = False
     try:
-        item = Item.create(item_name, rev_no=_rev)
+        item = Item.create(item_name, rev_id=_rev)
     except AccessDeniedError:
         abort(403)
     if request.method == 'GET':
@@ -599,7 +592,7 @@ def destroy_item(item_name, rev):
             return redirect(url_for_item(item_name))
     return render_template(item.destroy_template,
                            item=item, item_name=item_name,
-                           rev_no=rev,
+                           rev_id=rev,
                            form=form,
                           )
 
@@ -619,12 +612,12 @@ def jfu_server(item_name):
     item_name = subitem_prefix + subitem_name
     try:
         item = Item.create(item_name)
-        revno, size = item.modify()
+        revid, size = item.modify()
         item_modified.send(app._get_current_object(),
                            item_name=item_name)
         return jsonify(name=subitem_name,
                        size=size,
-                       url=url_for('.show_item', item_name=item_name, rev=revno),
+                       url=url_for('.show_item', item_name=item_name, rev=revid),
                        contenttype=contenttype_to_class(contenttype),
                       )
     except AccessDeniedError:
@@ -704,179 +697,71 @@ def _backrefs(item_name):
     """
     q = And([Term(WIKINAME, app.cfg.interwikiname),
              Or([Term(ITEMTRANSCLUSIONS, item_name), Term(ITEMLINKS, item_name)])])
-    docs = flaskg.storage.search(q, all_revs=False)
-    return [doc[NAME] for doc in docs]
+    revs = flaskg.storage.search(q, all_revs=False)
+    return [rev.meta[NAME] for rev in revs]
 
 
 @frontend.route('/+history/<itemname:item_name>')
 def history(item_name):
     offset = request.values.get('offset', 0)
     offset = max(int(offset), 0)
+    bookmark_time = int(request.values.get('bookmark', 0))
     if flaskg.user.valid:
         results_per_page = flaskg.user.results_per_page
     else:
         results_per_page = app.cfg.results_per_page
-    query = And([Term(WIKINAME, app.cfg.interwikiname), Term(NAME_EXACT, item_name), ])
+    terms = [Term(WIKINAME, app.cfg.interwikiname), Term(NAME_EXACT, item_name), ]
+    if bookmark_time:
+        terms.append(DateRange(MTIME, start=datetime.utcfromtimestamp(bookmark_time), end=None))
+    query = And(terms)
     # TODO: due to how getPageContent and the template works, we need to use limit=None -
     # it would be better to use search_page (and an appropriate limit, if needed)
-    docs = flaskg.storage.search(query, all_revs=True, sortedby=REV_NO, reverse=True, limit=None)
+    revs = flaskg.storage.search(query, all_revs=True, sortedby=[MTIME], reverse=True, limit=None)
     # get rid of the content value to save potentially big amounts of memory:
-    history = [dict((k, v) for k, v in doc.iteritems() if k != CONTENT) for doc in docs]
+    history = [dict((k, v) for k, v in rev.meta.iteritems() if k != CONTENT) for rev in revs]
     history_page = util.getPageContent(history, offset, results_per_page)
     return render_template('history.html',
                            item_name=item_name, # XXX no item here
                            history_page=history_page,
+                           bookmark_time=bookmark_time,
                           )
 
 
 @frontend.route('/+history')
 def global_history():
-    bookmark_time = None
+    all_revs = bool(request.values.get('all'))
     if flaskg.user.valid:
-        bm = flaskg.user.getBookmark()
-        if bm is not None:
-            bookmark_time = datetime.utcfromtimestamp(bm)
-    if flaskg.user.valid:
-        results_per_page = flaskg.user.results_per_page
+        bookmark_time = flaskg.user.getBookmark()
     else:
-        results_per_page = app.cfg.results_per_page
+        bookmark_time = None
     query = Term(WIKINAME, app.cfg.interwikiname)
     if bookmark_time is not None:
-        query = And([query, DateRange(MTIME, start=bookmark_time, end=None)])
-    # TODO: we need use limit=None to simulate previous implementation's behaviour -
-    # it would be better to use search_page (and an appropriate limit, if needed)
-    history = flaskg.storage.search(query, all_revs=True, sortedby=[MTIME, REV_NO], reverse=True, limit=None)
-    item_groups = OrderedDict()
-    for doc in history:
-        current_item_name = doc[NAME]
-        if bookmark_time and doc[MTIME] <= bookmark_time:
-            break
-        elif current_item_name in item_groups:
-            latest_doc = item_groups[current_item_name][0]
-            tm_latest = latest_doc[MTIME]
-            tm_current = doc[MTIME]
-            if format_date(tm_latest) == format_date(tm_current): # this change took place on the same day
-                item_groups[current_item_name].append(doc)
-        else:
-            item_groups[current_item_name] = [doc]
-
-    # Got the item dict, now doing grouping inside them
-    editor_info = namedtuple('editor_info', ['editor', 'editor_revnos'])
-    for item_name, docs in item_groups.items():
-        item_info = {}
-        editors_info = OrderedDict()
-        editors = []
-        revnos = []
-        comments = []
-        current_doc = docs[0]
-        item_info["item_name"] = item_name
-        item_info["name"] = current_doc[NAME]
-        item_info["timestamp"] = current_doc[MTIME]
-        item_info["contenttype"] = current_doc[CONTENTTYPE]
-        item_info["action"] = current_doc[ACTION]
-
-        # Aggregating comments, authors and revno
-        for doc in docs:
-            rev_no = doc[REV_NO]
-            revnos.append(rev_no)
-            comment = doc.get(COMMENT)
-            if comment:
-                comment = "#%(revno)d %(comment)s" % {
-                          'revno': rev_no,
-                          'comment': comment
-                          }
-                comments.append(comment)
-            editor = get_editor_info(doc)
-            editor_name = editor["name"]
-            if editor_name in editors_info:
-                editors_info[editor_name].editor_revnos.append(rev_no)
-            else:
-                editors_info[editor_name] = editor_info(editor, [rev_no])
-
-        if len(revnos) == 1:
-            # there is only one change for this item in the history considered
-            info, positions = editors_info[editor_name]
-            info_tuple = (info, "")
-            editors.append(info_tuple)
-        else:
-            # grouping the revision numbers into a range, which belong to a particular editor(user) for the current item
-            for info, positions in editors_info.values():
-                position_range = util.rangelist(positions)
-                position_range = "[%(position_range)s]" % {'position_range': position_range}
-                info_tuple = (info, position_range)
-                editors.append(info_tuple)
-
-        item_info["revnos"] = revnos
-        item_info["editors"] = editors
-        item_info["comments"] = comments
-        item_groups[item_name] = item_info
-
-    # Grouping on the date basis
-    offset = request.values.get('offset', 0)
-    offset = max(int(offset), 0)
-    day_count = OrderedDict()
-    revcount = 0
-    maxrev = results_per_page + offset
-    toappend = True
-    grouped_history = []
+        query = And([query, DateRange(MTIME, start=datetime.utcfromtimestamp(bookmark_time), end=None)])
+    revs = flaskg.storage.search(query, all_revs=all_revs, sortedby=[MTIME], reverse=True, limit=1000) # was: all_revs=False
+    # Group by date
+    history = []
+    day_history = namedtuple('day_history', ['day', 'entries'])
     prev_date = '0000-00-00'
-    rev_tuple = namedtuple('rev_tuple', ['rev_date', 'item_revs'])
-    rev_tuples = rev_tuple(prev_date, [])
-    for item_group in item_groups.values():
-        tm = item_group["timestamp"]
-        rev_date = format_date(tm)
-        if revcount < offset:
-            revcount += len(item_group["revnos"])
-            if rev_date not in day_count:
-                day_count[rev_date] = 0
-            day_count[rev_date] += len(item_group["revnos"])
-        elif rev_date == prev_date:
-            rev_tuples.item_revs.append(item_group)
-            revcount += len(item_group["revnos"])
+    dh = day_history(prev_date, [])  # dummy
+    for rev in revs:
+        rev_date = format_date(datetime.utcfromtimestamp(rev.meta[MTIME]))
+        if rev_date == prev_date:
+            dh.entries.append(rev)
         else:
-            grouped_history.append(rev_tuples)
-            if results_per_page and revcount >= maxrev:
-                toappend = False
-                break
-            else:
-                rev_tuples = rev_tuple(rev_date, [item_group])
-                prev_date = rev_date
-                revcount += len(item_group["revnos"])
-
-    if toappend:
-        grouped_history.append(rev_tuples)
-        revcount = 0 # this is the last page, no next page present
-    del grouped_history[0]  # First tuple will be a null one
-
-    # calculate offset for previous page link
-    if results_per_page:
-        previous_offset = 0
-        prev_rev_count = day_count.values()
-        prev_rev_count.reverse()
-        for numrev in prev_rev_count:
-            if previous_offset < results_per_page:
-                previous_offset += numrev
-            else:
-                break
-
-        if offset - previous_offset >= results_per_page:
-            previous_offset = offset - previous_offset
-        elif previous_offset:
-            previous_offset = 0
-        else:
-            previous_offset = -1
+            history.append(dh)
+            dh = day_history(rev_date, [rev])
+            prev_date = rev_date
     else:
-        previous_offset = -1 # no previous page
+        history.append(dh)
+    del history[0]  # kill the dummy
 
     item_name = request.values.get('item_name', '') # actions menu puts it into qs
     current_timestamp = int(time.time())
     return render_template('global_history.html',
                            item_name=item_name, # XXX no item
-                           history=grouped_history,
+                           history=history,
                            current_timestamp=current_timestamp,
                            bookmark_time=bookmark_time,
-                           offset=revcount,
-                           previous_offset=previous_offset,
                           )
 
 def _compute_item_sets():
@@ -886,11 +771,11 @@ def _compute_item_sets():
     linked = set()
     transcluded = set()
     existing = set()
-    docs = flaskg.storage.documents(all_revs=False, wikiname=app.cfg.interwikiname)
-    for doc in docs:
-        existing.add(doc[NAME])
-        linked.update(doc.get(ITEMLINKS, []))
-        transcluded.update(doc.get(ITEMTRANSCLUSIONS, []))
+    revs = flaskg.storage.documents(all_revs=False, wikiname=app.cfg.interwikiname)
+    for rev in revs:
+        existing.add(rev.meta[NAME])
+        linked.update(rev.meta.get(ITEMLINKS, []))
+        transcluded.update(rev.meta.get(ITEMTRANSCLUSIONS, []))
     return existing, linked, transcluded
 
 
@@ -1151,7 +1036,7 @@ def lostpass():
             email = form['email'].value
             if form['email'].valid and email:
                 users = user.search_users(email=email)
-                u = users and user.User(users[0][UUID])
+                u = users and user.User(users[0][ITEMID])
             if u and u.valid:
                 is_ok, msg = u.mailAccountData()
                 if not is_ok:
@@ -1294,7 +1179,7 @@ def login():
 @frontend.route('/+logout')
 def logout():
     flash(_("You are now logged out."), "info")
-    for key in ['user.id', 'user.auth_method', 'user.auth_attribs', ]:
+    for key in ['user.itemid', 'user.auth_method', 'user.auth_attribs', ]:
         if key in session:
             del session[key]
     return redirect(url_for('.show_root'))
@@ -1475,6 +1360,7 @@ def bookmark():
         flash(_("You must log in to use bookmarks."), "error")
     return redirect(url_for('.global_history'))
 
+
 @frontend.route('/+diffraw/<path:item_name>')
 def diffraw(item_name):
     # TODO get_item and get_revision calls may raise an AccessDeniedError.
@@ -1489,70 +1375,29 @@ def diffraw(item_name):
     return _diff_raw(item, rev1, rev2)
 
 
-@frontend.route('/+diffsince/<int:timestamp>/<path:item_name>')
-def diffsince(item_name, timestamp):
-    date = timestamp
-    # this is how we get called from "recent changes"
-    # try to find the latest rev1 before bookmark <date>
-    try:
-        item = flaskg.storage.get_item(item_name)
-    except AccessDeniedError:
-        abort(403)
-    revnos = item.list_revisions()
-    revnos.reverse()  # begin with latest rev
-    for revno in revnos:
-        revision = item.get_revision(revno)
-        if revision.timestamp <= date:
-            rev1 = revision.revno
-            break
-    else:
-        rev1 = revno  # if we didn't find a rev, we just take oldest rev we have
-    rev2 = -1  # and compare it with latest we have
-    return _diff(item, rev1, rev2)
-
-
 @frontend.route('/+diff/<path:item_name>')
 def diff(item_name):
-    # TODO get_item and get_revision calls may raise an AccessDeniedError.
-    #      If this happens for get_item, don't show the diff at all
-    #      If it happens for get_revision, we may just want to skip that rev in the list
-    try:
-        item = flaskg.storage.get_item(item_name)
-    except AccessDeniedError:
-        abort(403)
-    rev1 = request.values.get('rev1')
-    rev2 = request.values.get('rev2')
+    item = flaskg.storage[item_name]
+    bookmark_time = request.values.get('bookmark')
+    if bookmark_time is not None:
+        # this is how we get called from "recent changes"
+        # try to find the latest rev1 before bookmark <date>
+        revs = sorted([(rev.meta[MTIME], rev.revid) for rev in item.iter_revs()], reverse=True)
+        for mtime, revid in revs:
+            if mtime <= bookmark_time:
+                rev1 = revid
+                break
+        else:
+            rev1 = revid  # if we didn't find a rev, we just take oldest rev we have
+        rev2 = CURRENT  # and compare it with latest we have
+    else:
+        # otherwise we should get the 2 revids directly
+        rev1 = request.values.get('rev1')
+        rev2 = request.values.get('rev2')
     return _diff(item, rev1, rev2)
 
 
-def _normalize_revnos(item, revno1, revno2):
-    try:
-        revno1 = int(revno1)
-    except (ValueError, TypeError):
-        revno1 = -2
-    try:
-        revno2 = int(revno2)
-    except (ValueError, TypeError):
-        revno2 = -1
-
-    # get (absolute) current revision number
-    current_revno = item.get_revision(-1).revno
-    # now we can calculate the absolute revnos if we don't have them yet
-    if revno1 < 0:
-        revno1 += current_revno + 1
-    if revno2 < 0:
-        revno2 += current_revno + 1
-
-    if revno1 > revno2:
-        oldrevno, newrevno = revno2, revno1
-    else:
-        oldrevno, newrevno = revno1, revno2
-    return oldrevno, newrevno
-
-
-def _common_type(rev1, rev2):
-    ct1 = rev1.get(CONTENTTYPE)
-    ct2 = rev2.get(CONTENTTYPE)
+def _common_type(ct1, ct2):
     if ct1 == ct2:
         # easy, exactly the same content type, call do_diff for it
         commonmt = ct1
@@ -1568,37 +1413,33 @@ def _common_type(rev1, rev2):
     return commonmt
 
 
-def _diff(item, revno1, revno2):
-    oldrevno, newrevno = _normalize_revnos(item, revno1, revno2)
-    oldrev = item.get_revision(oldrevno)
-    newrev = item.get_revision(newrevno)
-
-    commonmt = _common_type(oldrev, newrev)
+def _diff(item, revid1, revid2):
+    oldrev = item[revid1]
+    newrev = item[revid2]
+    commonmt = _common_type(oldrev.meta[CONTENTTYPE], newrev.meta[CONTENTTYPE])
 
     try:
-        item = Item.create(item.name, contenttype=commonmt, rev_no=newrevno)
+        item = Item.create(item.name, contenttype=commonmt, rev_id=newrev.revid)
     except AccessDeniedError:
         abort(403)
-    rev_nos = item.rev.item.list_revisions()
+    rev_ids = [CURRENT]  # XXX TODO we need a reverse sorted list
     return render_template(item.diff_template,
                            item=item, item_name=item.name,
                            rev=item.rev,
-                           first_rev_no=rev_nos[0],
-                           last_rev_no=rev_nos[-1],
+                           first_rev_id=rev_ids[0],
+                           last_rev_id=rev_ids[-1],
                            oldrev=oldrev,
                            newrev=newrev,
                           )
 
 
-def _diff_raw(item, revno1, revno2):
-    oldrevno, newrevno = _normalize_revnos(item, revno1, revno2)
-    oldrev = item.get_revision(oldrevno)
-    newrev = item.get_revision(newrevno)
-
+def _diff_raw(item, revid1, revid2):
+    oldrev = item[revid1]
+    newrev = item[revid2]
     commonmt = _common_type(oldrev, newrev)
 
     try:
-        item = Item.create(item.name, contenttype=commonmt, rev_no=newrevno)
+        item = Item.create(item.name, contenttype=commonmt, rev_id=newrev.revid)
     except AccessDeniedError:
         abort(403)
     return item._render_data_diff_raw(oldrev, newrev)
@@ -1638,7 +1479,7 @@ def findMatches(item_name, s_re=None, e_re=None):
     :rtype: tuple
     :returns: start word, end word, matches dict
     """
-    item_names = [doc[NAME] for doc in flaskg.storage.documents(all_revs=False, wikiname=app.cfg.interwikiname)]
+    item_names = [rev.meta[NAME] for rev in flaskg.storage.documents(all_revs=False, wikiname=app.cfg.interwikiname)]
     if item_name in item_names:
         item_names.remove(item_name)
     # Get matches using wiki way, start and end of word
@@ -1781,11 +1622,11 @@ class NestedItemListBuilder(object):
     def childs(self, name):
         # does not recurse
         try:
-            item = flaskg.storage.get_item(name)
+            item = flaskg.storage[name]
         except AccessDeniedError:
             return []
-        rev = item.get_revision(-1)
-        itemlinks = rev.get(ITEMLINKS, [])
+        rev = item[CURRENT]
+        itemlinks = rev.meta.get(ITEMLINKS, [])
         return [child for child in itemlinks if self.is_ok(child)]
 
     def is_ok(self, child):
@@ -1804,11 +1645,11 @@ def global_tags():
     show a list or tag cloud of all tags in this wiki
     """
     item_name = request.values.get('item_name', '') # actions menu puts it into qs
-    docs = flaskg.storage.documents(all_revs=False, wikiname=app.cfg.interwikiname)
+    revs = flaskg.storage.documents(all_revs=False, wikiname=app.cfg.interwikiname)
     tags_counts = {}
-    for doc in docs:
-        tags = doc.get(TAGS, [])
-        logging.debug("name %s rev %s tags %s" % (doc[NAME], doc[REV_NO], tags))
+    for rev in revs:
+        tags = rev.meta.get(TAGS, [])
+        logging.debug("name %s rev %s tags %s" % (rev.meta[NAME], rev.meta[REVID], tags))
         for tag in tags:
             tags_counts[tag] = tags_counts.setdefault(tag, 0) + 1
     tags_counts = sorted(tags_counts.items())
@@ -1841,8 +1682,8 @@ def tagged_items(tag):
     show all items' names that have tag <tag>
     """
     query = And([Term(WIKINAME, app.cfg.interwikiname), Term(TAGS, tag), ])
-    docs = flaskg.storage.search(query, all_revs=False, sortedby=NAME_EXACT, limit=None)
-    item_names = [doc[NAME] for doc in docs]
+    revs = flaskg.storage.search(query, all_revs=False, sortedby=NAME_EXACT, limit=None)
+    item_names = [rev.meta[NAME] for rev in revs]
     return render_template("item_link_list.html",
                            headline=_("Items tagged with %(tag)s", tag=tag),
                            item_name=tag,
