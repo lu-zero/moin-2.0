@@ -6,10 +6,10 @@ from flask import g as flaskg
 from flaskext.script import Command, Option
 
 from MoinMoin import user
+from MoinMoin.app import before_wiki
 from MoinMoin.util.clock import Clock
 
 class MoinShell(Command):
-
     """
     Runs a Python shell inside Flask application context.
 
@@ -22,10 +22,10 @@ class MoinShell(Command):
                         line by passing the **--no-ipython** flag.
     """
 
-    banner = ''
+    banner = u'Objects "flaskg" and "app" is in context.'
 
     description = 'Runs a Python shell inside Flask application context.'
-    
+
     def __init__(self, banner=None, make_context=None, use_ipython=True):
 
 
@@ -34,16 +34,11 @@ class MoinShell(Command):
 
         if make_context is None:
             def make_context():
-                app = _request_ctx_stack.top.app
-                flaskg.unprotected_storage = app.storage
-                flaskg.groups = app.cfg.groups()
-                flaskg.storage = app.storage
-                flaskg.user = user.User()
-                flaskg.clock = Clock()
+                before_wiki()
                 return dict(app=app, flaskg=flaskg)
 
         self.make_context = make_context
-    
+
     def get_options(self):
 
         return (
@@ -53,7 +48,6 @@ class MoinShell(Command):
                        default=not(self.use_ipython)),)
 
     def get_context(self):
-        
         """
         Returns a dict of context variables added to the shell namespace.
         """
@@ -66,11 +60,20 @@ class MoinShell(Command):
         Runs the shell. Unless no_ipython is True or use_python is False
         then runs IPython shell if that is installed.
         """
-        
-
         context = self.get_context()
+        if not no_ipython:
+            try:
+                # IPython < 0.11
+                import IPython
+                sh = IPython.Shell.IPShellEmbed(banner=self.banner)
+                sh(global_ns=dict(), local_ns=context)
+                return
+            except ImportError:
+                # IPython = 0.11
+                import IPython
+                sh = IPython.embed(banner2=self.banner, user_ns=context)
+                sh()
+            finally:
+                pass
 
-        from IPython import embed
-
-        embed()
-
+        code.interact(self.banner, local=context)

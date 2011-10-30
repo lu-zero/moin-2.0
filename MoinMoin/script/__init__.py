@@ -52,7 +52,7 @@ def main(default_command='moin', wiki_config=None):
     manager.add_command("import19", ImportMoin19())
 
     from MoinMoin.script.maint.moinshell import MoinShell
-    manager.add_command("moinshell", MoinShell())
+    manager.add_command("shell", MoinShell())
 
     return manager.run(default_command=default_command)
 
