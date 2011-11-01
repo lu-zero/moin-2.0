@@ -60,19 +60,20 @@ class Backend(MutableBackendBase):
         for backend in self.backends.values():
             backend.close()
 
-    def _get_backend(self, fq_name):
+    def _get_backend(self, fq_names):
         """
         For a given fully-qualified itemname (i.e. something like ns:itemname)
         find the backend it belongs to, the itemname without namespace
         spec and the namespace of the backend.
 
-        :param fq_name: fully-qualified itemname
+        :param fq_name: fully-qualified itemnames
         :returns: tuple of (backend name, local item name, namespace)
         """
+        fq_name = fq_names[0]
         for namespace, backend_name in self.namespaces:
             if fq_name.startswith(namespace):
-                item_name = fq_name[len(namespace):]
-                return backend_name, item_name, namespace.rstrip(':')
+                item_names = [fq_name[len(namespace):] for fq_name in fq_names]
+                return backend_name, item_names, namespace.rstrip(':')
         raise AssertionError("No backend found for {0!r}. Namespaces: {1!r}".format(itemname, self.namespaces))
 
     def __iter__(self):
@@ -103,19 +104,24 @@ class Backend(MutableBackendBase):
         if namespace is None:
             # if there is no NAMESPACE in metadata, we assume that the NAME
             # is fully qualified and determine the namespace from it:
-            fq_name = meta[NAME]
-            backend_name, item_name, namespace = self._get_backend(fq_name)
+            fq_names = meta[NAME]
+            if not isinstance(fq_names, list):
+                fq_names = [fq_names]
+            backend_name, item_names, namespace = self._get_backend(fq_names)
             # side effect: update the metadata with namespace and short item name (no ns)
             meta[NAMESPACE] = namespace
-            meta[NAME] = item_name
+            meta[NAME] = item_names
         else:
             if namespace:
                 namespace += u':' # needed for _get_backend
-            backend_name, _, _ = self._get_backend(namespace)
+            backend_name, _, _ = self._get_backend([namespace])
         backend = self.backends[backend_name]
+
         if not isinstance(backend, MutableBackendBase):
             raise TypeError('backend {0} is readonly!'.format(backend_name))
+
         revid = backend.store(meta, data)
+
         # add the BACKENDNAME after storing, so it gets only into
         # the index, but not in stored metadata:
         meta[BACKENDNAME] = backend_name

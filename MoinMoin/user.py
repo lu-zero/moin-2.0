@@ -22,7 +22,7 @@ from __future__ import absolute_import, division
 import time
 import copy
 import hashlib
-import urllib
+import werkzeug
 from StringIO import StringIO
 
 from babel import parse_locale
@@ -101,6 +101,12 @@ def get_user_backend():
 
 def search_users(**q):
     """ Searches for a users with given query keys/values """
+
+    # Since item name is a list, it's possible a list have been passed as parameter.
+    # No problem, since user always have just one name (TODO: validate single name for user)
+    if q.get('name_exact') and isinstance(q.get('name_exact'), list):
+        q['name_exact'] = q['name_exact'][0]
+
     q.update({
         WIKINAME: app.cfg.interwikiname, # XXX for now, search only users of THIS wiki
                                          # maybe add option to not index wiki users
@@ -261,24 +267,29 @@ class User(object):
                 pass
         return l
 
-    @property
     def avatar(self, size=30):
-        param = {}
-        if not self.email:
-            return '/_themes/%s/%s' % (theme.info['identifier'],
-                                       theme.info['default_avatar'] or 'img/default_avatar.png')
-        param['gravatar_id'] = hashlib.md5(self.email.lower()).hexdigest()
+        if not app.cfg.user_use_gravatar:
+            return None
 
         from MoinMoin.themes import get_current_theme
+        from flask.ext.themes import static_file_url
+
         theme = get_current_theme()
-        if theme.info.get('default_avatar'):
-            param['default'] = '%s_themes/%s/%s' % (request.url_root,
-                                                    theme.info['identifier'],
-                                                    theme.info['default_avatar'])
+
+        if not self.email:
+            return static_file_url(theme, theme.info.get('default_avatar', 'img/default_avatar.png'))
+
+        param = {}
+        param['gravatar_id'] = hashlib.md5(self.email.lower()).hexdigest()
+
+        param['default'] = static_file_url(theme,
+                                           theme.info.get('default_avatar', 'img/default_avatar.png'),
+                                           True)
 
         param['size'] = str(size)
+        #TODO: use same protocol of Moin site (might be https instead of http)]
         gravatar_url = "http://www.gravatar.com/avatar.php?"
-        gravatar_url += urllib.urlencode(param)
+        gravatar_url += werkzeug.url_encode(param)
 
         return gravatar_url
 
@@ -386,7 +397,8 @@ class User(object):
         """
         Save user account data to user account file on disk.
         """
-        backend_name = self.name # XXX maybe UserProfile/<name> later
+        # XXX maybe UserProfile/<name> later
+        backend_name = self.name[0] if isinstance(self.name, list) else self.name
         item = self._user_backend[backend_name]
         meta = {}
         for key, value in self.persistent_items():
