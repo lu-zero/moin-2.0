@@ -551,9 +551,10 @@ a.moin-mime-drawing:before { content: url(../img/moin-drawing.png); margin: 0 0.
 body { background-color: #F3F7FD; }
 
 /* moin-content */
-#moin-page { margin: 0; padding: 2px 20px 20px; box-shadow: 1px 1px 33px -11px inset;
-/* support for firefox 3.5/3.6 and safari */
--moz-box-shadow: 1px 1px 33px -11px inset; -webkit-box-shadow: inset 1px 1px 33px -11px black; }
+#moin-page { margin: 0; padding: 0; display: table; width: 100%; table-layout: fixed; }
+#moin-content { background: #FFF; overflow: hidden; box-shadow: 1px 1px 33px -11px inset; padding: 8px 25px; display: table-cell; 
+    /* support for firefox 3.5/3.6 and safari */
+    -moz-box-shadow: 1px 1px 33px -11px inset; -webkit-box-shadow: inset 1px 1px 33px -11px black; }
 
 /* links */
 a:link { color: #47F; text-decoration: none; }
@@ -631,6 +632,17 @@ a.download { font-size: 120%; letter-spacing: 0.05em; font-weight: bold; backgro
 .moin-itemviews form,
 .moin-itemviews form div { display: inline; margin: 0; }
 .moin-itemviews select { font-size: 100%; vertical-align: middle; }
+
+/* moin-header moin-subitem-navigation */
+.moin-subitem-navigation {  padding: 2px 4px; background: #C4D9FF; margin: 0; vertical-align: top;
+                font-size: 0.8em; width: 14em; overflow: hidden; display: table-cell; word-wrap: break-word; }
+.moin-subitem-navigation .list-header { margin: 2px 0; padding: 0; font-size: 1.1em; }
+.moin-subitem-navigation .sep { font-size: 1.2em; margin-left: 0px; }
+.moin-subitem-navigation ul { display: block; margin: 0; padding: 0 4px; }
+.moin-subitem-navigation li { padding: 0.5em 2px; line-height: 1em; list-style: none; }
+.moin-subitem-navigation li:hover { background: #4D7DA9; }
+.moin-subitem-navigation a { color: #0044B3; }
+.moin-subitem-navigation a:hover { text-decoration: underline; }
 
 /* moin-page moin-footer */
 #moin-footer { clear: both; margin: 0 0; }
