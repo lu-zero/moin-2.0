@@ -908,3 +908,81 @@ function QuicklinksExpander() {
 jQuery(document).ready(function() {
     new QuicklinksExpander();
 })
+
+function toggleSubtree(item) {
+    /* used to toggle subtrees in the subitem widget */
+    var subtree = $(item).siblings("ul");
+    subtree.toggle(200);
+}
+
+function guessContentType() {
+    /* Used in the modify_text template to guess the data content type client-side 
+     * This approach has the advantage of reacting to content type changes for the 
+     * link/transclude code without having to re-fetch the page */
+    var meta_text = $("#f_meta_text").val();
+    var ctype_regex = /["']contenttype["']\s*:\s*["']([\w-_+.]+\/[\w-_+.]+)(;|["'])/;
+    if (meta_text) {
+        var match = ctype_regex.exec(meta_text);
+        if (match) return match[1];
+    }
+    // text/plain is the default value
+    return "text/plain";
+}
+
+function transcludeSubitem(subitem_name, fullname) {
+    function moinwiki(subitem_name, fullname) {
+        return "{{/" + subitem_name.replace("{{", "\\}}") + "}} ";
+    }
+    function mediawiki(subitem_name, fullname) {
+        return "{{:" + fullname.replace("}}", "\\}}") + "}} ";
+    }
+    function rst(subitem_name, fullname) {
+        return "\n.. include:: " + subitem_name + "\n";
+    }
+    function docbook(subitem_name, fullname) {
+        return ""; //XXX: the docbook converter currently doesn't handle transclusion with <ref> tags
+    }
+    var transclude_formats = {
+        "text/x.moin.wiki" : moinwiki,
+        "text/x.moin.creole" : moinwiki,
+        "text/x-mediawiki" : mediawiki,
+        "text/x-rst" : rst,
+        "application/docbook+xml" : docbook,
+        "text/plain" : function(x){return x + " ";},
+    }
+    var ctype = guessContentType();
+    var input_element = $("#f_data_text");
+    var ctype_format = transclude_formats[ctype];
+    if (!ctype_format) ctype_format = transclude_formats["text/plain"];
+    input_element.val(input_element.val() + ctype_format(subitem_name, fullname));
+    input_element.focus();
+}
+
+function linkSubitem(subitem_name, fullname) {
+    function moinwiki(subitem_name, fullname) {
+        return "[[/" + subitem_name.replace("]", "\\]") + "]] ";
+    }
+    function mediawiki(subitem_name, fullname) {
+        return "[[" + fullname.replace("]", "\\]") + "|" + subitem_name.replace("]", "\\]") + "]] ";
+    }
+    function rst(subitem_name, fullname) {
+        return "`" + subitem_name.replace(">", "\\>").replace("`", "\\`") + " <" + fullname.replace(">", "\\>") + ">`_ ";
+    }
+    function docbook(subitem_name, fullname) {
+        return '<ulink url="/' + fullname.replace('"', '\\"') + '">' + subitem_name + "</ulink>";;
+    }
+    var link_formats = {
+        "text/x.moin.wiki" : moinwiki,
+        "text/x.moin.creole" : moinwiki,
+        "text/x-mediawiki" : mediawiki,
+        "text/x-rst" : rst,
+        "application/docbook+xml" : docbook,
+        "text/plain" : function(x){return x + " ";},
+    }
+    var ctype = guessContentType();
+    var input_element = $("#f_data_text");
+    var ctype_format = link_formats[ctype];
+    if (!ctype_format) ctype_format = link_formats["text/plain"];
+    input_element.val(input_element.val() + ctype_format(subitem_name, fullname));
+    input_element.focus();
+}
