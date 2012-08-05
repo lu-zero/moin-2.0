@@ -29,7 +29,7 @@ from flatland.validation import Validator
 
 from whoosh.query import Term, And, Prefix
 
-from MoinMoin.forms import RequiredText, OptionalText, OptionalMultilineText, Tags, Submit
+from MoinMoin.forms import RequiredText, OptionalText, JSON, Tags, Submit
 
 from MoinMoin.security.textcha import TextCha, TextChaizedForm
 from MoinMoin.signalling import item_modified
@@ -109,22 +109,19 @@ class DummyItem(object):
         return True
 
 
-class ValidJSON(Validator):
-    """Validator for JSON
-    """
-    invalid_json_msg = L_('Invalid JSON.')
-
-    def validate(self, element, state):
-        try:
-            json.loads(element.value)
-        except:
-            return self.note_error(element, state, 'invalid_json_msg')
-        return True
-
-
 class BaseChangeForm(TextChaizedForm):
     comment = OptionalText.using(label=L_('Comment')).with_properties(placeholder=L_("Comment about your change"))
     submit = Submit
+
+
+class BaseMetaForm(Form):
+    itemtype = RequiredText.using(label=L_("Item type")).with_properties(placeholder=L_("Item type"))
+    contenttype = RequiredText.using(label=L_("Content type")).with_properties(placeholder=L_("Content type"))
+    # Disabled - Flatland doesn't distinguish emtpy value and nonexistent
+    # value, while an emtpy acl and no acl have different semantics
+    #acl = OptionalText.using(label=L_('ACL')).with_properties(placeholder=L_("Access Control List"))
+    summary = OptionalText.using(label=L_("Summary")).with_properties(placeholder=L_("One-line summary of the item"))
+    tags = Tags
 
 
 class Item(object):
@@ -303,14 +300,25 @@ class Item(object):
 
     class _ModifyForm(BaseChangeForm):
         """Base class for ModifyForm of Item subclasses."""
-        meta_text = OptionalMultilineText.using(label=L_("MetaData (JSON)")).with_properties(rows=ROWS_META, cols=COLS).validated_by(ValidJSON())
+        meta_form = BaseMetaForm
+        extra_meta_text = JSON.using(label=L_("Extra MetaData (JSON)")).with_properties(rows=ROWS_META, cols=COLS)
+        meta_template = 'modify_meta.html'
 
         def _load(self, item):
-            self['meta_text'] = item.meta_dict_to_text(item.prepare_meta_for_modify(item.meta))
+            meta = item.prepare_meta_for_modify(item.meta)
+            # Default value of `policy` argument of Flatland.Dict.set's is
+            # 'strict', which causes KeyError to be thrown when meta contains
+            # meta keys that are not present in self['meta_form']. Setting
+            # policy to 'duck' suppresses this behavior.
+            self['meta_form'].set(meta, policy='duck')
+            for k in self['meta_form'].field_schema_mapping.keys():
+                meta.pop(k, None)
+            self['extra_meta_text'].set(item.meta_dict_to_text(meta))
             self['content_form']._load(item.content)
 
         def _dump(self, item):
-            meta = item.meta_text_to_dict(self['meta_text'].value)
+            meta = self['meta_form'].value.copy()
+            meta.update(item.meta_text_to_dict(self['extra_meta_text'].value))
             data, contenttype_guessed = self['content_form']._dump(item.content)
             comment = self['comment'].value
             return meta, data, contenttype_guessed, comment
