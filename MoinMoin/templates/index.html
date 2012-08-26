@@ -50,23 +50,13 @@
             <div class="moin-contenttypes-wrapper">
                 <div class="ct-hide">{{ _("Filter by content type") }}</div>
                 {% set unknown_items_label = _("items having unknown mime types") %}
-                {{ gen.form.open(form, method="post", action=url_for('frontend.index', item_name=item_name)) }}
+                {{ gen.form.open(form, method="get", action=url_for('frontend.index', item_name=item_name)) }}
                 <ul>
                     <li>
                         <a href="#" class="filter-toggle">&raquo; {{ _("Toggle") }}</a>
                         <a href="#" class="filter-more">&raquo; {{ _("More") }}</a>
                     </li>
-                    {% for e in [
-                        'markup_text_items',
-                        'other_text_items',
-                        'image_items',
-                        'audio_items',
-                        'video_items',
-                        'other_items',
-                        'unknown_items',
-                        ] %}
-                        <li>{{ forms.render(form['contenttype'][e]) }}</li>
-                    {% endfor %}
+                    {{ forms.render(form['contenttype']) }}
                 </ul>
                 {{ forms.render(form['submit']) }}
                 {{ gen.form.close() }}
