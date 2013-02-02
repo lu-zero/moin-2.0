@@ -82,11 +82,10 @@ class RegistryContent(RegistryBase):
 
         def __lt__(self, other):
             if isinstance(other, self.__class__):
-                if self.content_type != other.content_type:
-                    return other.content_type.issupertype(self.content_type)
-                if self.priority != other.priority:
-                    return self.priority < other.priority
-                return False
+                # Within the registry, content_type is sorted in descending
+                # order (more specific first) while priority is in ascending
+                # order (smaller first).
+                return (other.content_type, self.priority) < (self.content_type, other.priority)
             return NotImplemented
 
     def __init__(self, group_names):
