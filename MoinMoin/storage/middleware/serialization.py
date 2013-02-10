@@ -70,6 +70,9 @@ def deserialize(src, backend):
         if isinstance(name, unicode):
             # if we encounter single names, make a list of names:
             meta['name'] = [name, ]
+        if 'itemtype' not in meta:
+            # temporary hack to upgrade serialized item files:
+            meta['itemtype'] = u'default'
         data_size = meta[u'size']
         curr_pos = src.tell()
         limited = LimitedStream(src, data_size)
