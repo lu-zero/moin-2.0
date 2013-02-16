@@ -9,10 +9,9 @@ import shutil
 import json
 
 from flask import current_app as app
-from flask import g as flaskg
 from flask.ext.script import Command, Option
 
-from MoinMoin.config import CURRENT, ITEMID, REVID, DATAID, SIZE, HASH_ALGORITHM
+from MoinMoin.constants.keys import CURRENT, ITEMID, REVID, DATAID, SIZE, HASH_ALGORITHM
 
 
 class GetItem(Command):
@@ -55,7 +54,7 @@ class PutItem(Command):
             meta = mf.read()
         meta = meta.decode('utf-8')
         meta = json.loads(meta)
-        to_kill = [SIZE, HASH_ALGORITHM, # gets re-computed automatically
+        to_kill = [SIZE, HASH_ALGORITHM,  # gets re-computed automatically
                    DATAID,
                   ]
         for key in to_kill:

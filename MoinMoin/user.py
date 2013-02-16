@@ -31,14 +31,13 @@ from flask import current_app as app
 from flask import g as flaskg
 from flask import session, request, url_for
 
-from whoosh.query import Term, And, Or
-
 from MoinMoin import log
 logging = log.getLogger(__name__)
 
 from MoinMoin import wikiutil
-from MoinMoin.config import CONTENTTYPE_USER
+from MoinMoin.constants.contenttypes import CONTENTTYPE_USER
 from MoinMoin.constants.keys import *
+from MoinMoin.constants.misc import ANON
 from MoinMoin.i18n import _, L_, N_
 from MoinMoin.mail import sendmail
 from MoinMoin.util.interwiki import getInterwikiHome, getInterwikiName, is_local_wiki
@@ -58,7 +57,7 @@ Name may contain any Unicode alpha numeric character, with optional one
 space between words. Group page name is not allowed.""", name=username)
 
     # Name required to be unique. Check if name belong to another user.
-    if validate and search_users(name_exact=username):
+    if validate and search_users(**{NAME_EXACT: username}):
         return _("This user name already belongs to somebody else.")
 
     # XXX currently we just support creating with 1 name:
@@ -115,8 +114,8 @@ def search_users(**q):
     """ Searches for a users with given query keys/values """
     # Since item name is a list, it's possible a list have been passed as parameter.
     # No problem, since user always have just one name (TODO: validate single name for user)
-    if q.get('name_exact') and isinstance(q.get('name_exact'), list):
-        q['name_exact'] = q['name_exact'][0]
+    if q.get(NAME_EXACT) and isinstance(q.get(NAME_EXACT), list):
+        q[NAME_EXACT] = q[NAME_EXACT][0]
     q = update_user_query(**q)
     backend = get_user_backend()
     docs = backend.documents(**q)
@@ -160,9 +159,9 @@ def normalizeName(name):
     :rtype: unicode
     :returns: user name that can be used in acl lines
     """
-    username_allowedchars = "'@.-_" # ' for names like O'Brian or email addresses.
-                                    # "," and ":" must not be allowed (ACL delimiters).
-                                    # We also allow _ in usernames for nicer URLs.
+    username_allowedchars = "'@.-_"  # ' for names like O'Brian or email addresses.
+                                     # "," and ":" must not be allowed (ACL delimiters).
+                                     # We also allow _ in usernames for nicer URLs.
     # Strip non alpha numeric characters (except username_allowedchars), keep white space
     name = ''.join([c for c in name if c.isalnum() or c.isspace() or c in username_allowedchars])
 
@@ -206,7 +205,7 @@ class UserProfile(object):
             return self._meta[name]
         except KeyError:
             v = self._defaults[name]
-            if isinstance(v, (list, dict, set)): # mutable
+            if isinstance(v, (list, dict, set)):  # mutable
                 self._meta[name] = v
             return v
 
@@ -286,11 +285,11 @@ class User(object):
 
         itemid = uid
         if not itemid and auth_username:
-            users = search_users(name_exact=auth_username)
+            users = search_users(**{NAME_EXACT: auth_username})
             if users:
                 itemid = users[0].meta[ITEMID]
-        if not itemid and _name and _name != 'anonymous':
-            users = search_users(name_exact=_name)
+        if not itemid and _name and _name != ANON:
+            users = search_users(**{NAME_EXACT: _name})
             if users:
                 itemid = users[0].meta[ITEMID]
         if itemid:
@@ -333,7 +332,7 @@ class User(object):
             assert isinstance(names, list)
             return names[0]
         except IndexError:
-            return u'anonymous'
+            return ANON
 
     @property
     def language(self):
@@ -378,8 +377,8 @@ class User(object):
 
         :param changed: bool, set this to True if you updated the user profile values
         """
-        if not self.valid and not self.disabled or changed: # do we need to save/update?
-            self.save() # yes, create/update user profile
+        if not self.valid and not self.disabled or changed:  # do we need to save/update?
+            self.save()  # yes, create/update user profile
 
     def exists(self):
         """ Do we have a user profile for this user?
@@ -441,7 +440,8 @@ class User(object):
         try:
             password_correct, recomputed_hash = pwd_context.verify_and_update(password, pw_hash)
         except (ValueError, TypeError) as err:
-            logging.error('in user profile %r, verifying the passlib pw hash raised an Exception [%s]' % (self.name, str(err)))
+            logging.error('in user profile %r, verifying the passlib pw hash raised an Exception [%s]' % (
+                self.name, str(err)))
         else:
             if recomputed_hash is not None:
                 data[ENC_PASSWORD] = recomputed_hash
@@ -481,13 +481,13 @@ class User(object):
             self.valid = True
 
         if not exists:
-            pass # XXX UserCreatedEvent
+            pass  # XXX UserCreatedEvent
         else:
-            pass # XXX UserChangedEvent
+            pass  # XXX UserChangedEvent
 
     def getText(self, text):
         """ translate a text to the language of this user """
-        return text # FIXME, was: self._request.getText(text, lang=self.language)
+        return text  # FIXME, was: self._request.getText(text, lang=self.language)
 
     # Bookmarks --------------------------------------------------------------
 
@@ -666,9 +666,9 @@ class User(object):
         item_name = getInterwikiName(item_name)
         trail_in_session = session.get('trail', [])
         trail = trail_in_session[:]
-        trail = [i for i in trail if i != item_name] # avoid dupes
-        trail.append(item_name) # append current item name at end
-        trail = trail[-self._cfg.trail_size:] # limit trail length
+        trail = [i for i in trail if i != item_name]  # avoid dupes
+        trail.append(item_name)  # append current item name at end
+        trail = trail[-self._cfg.trail_size:]  # limit trail length
         if trail != trail_in_session:
             session['trail'] = trail
 

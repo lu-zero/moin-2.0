@@ -53,7 +53,7 @@ SUMMARY = "summary"
 # data. meta[HASH_ALGORITHM] = hash(rev_data, HASH_ALGORITHM)
 # some backends may use this also for other purposes.
 HASH_ALGORITHM = 'sha1'
-HASH_LEN = 40 # length of hex str representation of hash value
+HASH_LEN = 40  # length of hex str representation of hash value
 
 # some field names for whoosh index schema / documents in index:
 NAME_EXACT = "name_exact"
@@ -88,6 +88,8 @@ MAILTO_AUTHOR = "mailto_author"
 CSS_URL = "css_url"
 EDIT_ROWS = "edit_rows"
 RESULTS_PER_PAGE = "results_per_page"
+WANT_TRIVIAL = "want_trivial"
+EMAIL_SUBSCRIBED_EVENTS = "email_subscribed_events"
 DISABLED = "disabled"
 
 # in which backend is some revision stored?

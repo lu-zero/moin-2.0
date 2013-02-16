@@ -16,7 +16,7 @@ import shutil
 
 from MoinMoin.util.interwiki import split_interwiki, join_wiki, InterWikiMap, url_for_item, _split_namespace
 from MoinMoin._tests import wikiconfig
-from MoinMoin.config import CURRENT
+from MoinMoin.constants.keys import CURRENT
 from MoinMoin.app import before_wiki
 
 from flask import current_app as app
@@ -115,8 +115,8 @@ class TestInterWiki(object):
 
                  (('http://example.org/', u'SomePage', u'ns1'), 'http://example.org/:ns1:SomePage'),
                  (('http://example.org/?page=$PAGE&action=show&namespace=$NAMESPACE', u'SomePage', u'ns1'), 'http://example.org/?page=SomePage&action=show&namespace=ns1'),
-                 (('http://example.org/', u'Aktuelle\xc4nderungen', u'ns1ççç'), 'http://example.org/:ns1%C3%83%C2%A7%C3%83%C2%A7%C3%83%C2%A7:Aktuelle%C3%84nderungen'),
-                 (('http://example.org/$NAMESPACE/$PAGE/show', u'Aktuelle\xc4nderungen', u'nsç1'), 'http://example.org/ns%C3%83%C2%A71/Aktuelle%C3%84nderungen/show'),
+                 (('http://example.org/', u'Aktuelle\xc4nderungen', u'ns1\xc4'), 'http://example.org/:ns1%C3%84:Aktuelle%C3%84nderungen'),
+                 (('http://example.org/$NAMESPACE/$PAGE/show', u'Aktuelle\xc4nderungen', u'ns\xc41'), 'http://example.org/ns%C3%841/Aktuelle%C3%84nderungen/show'),
                 ]
         for (baseurl, pagename, namespace), url in tests:
             assert join_wiki(baseurl, pagename, namespace) == url

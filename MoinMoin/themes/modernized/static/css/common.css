@@ -36,7 +36,7 @@ article, aside, details, figcaption, figure, footer, header, hgroup, menu, nav,
 section { display: block; }
 nav ul { list-style: none; }
 blockquote, q { quotes: none; }
-blockquote:before, blockquote:after, q:before, q:after { content: ''; content: none; }
+blockquote:before, blockquote:after, q:before, q:after { content: none; }
 a { margin: 0; padding: 0; font-size: 100%; vertical-align: baseline; background: transparent; }
 ins { background-color: #ff9; color: #000; text-decoration: none; }
 mark { background-color: #ff9; color: #000; font-style: italic; font-weight: bold; }
@@ -272,7 +272,7 @@ input.blank{border-color:#4e7da9;border-width:2px}
 .moin-form dd input{width:75%}
 .moin-form dt{clear:both;float:left;width:25%;text-align:right;margin-top:.3em;padding-right:1%;}
 .moin-form dt label.required:after{content:'*';color:#000}
-.moin-form button,.moin-form input[type="submit"]{clear:both;display:table;margin:auto}
+.moin-form button,.moin-form input[type="submit"]{clear:both;display:block;margin:auto}
 form[name="delete_item"] dd input,form[name="rename_item"] dd input,form[name="destroy_item"] dd input{width:100%}
 form[name="delete_item"] dt,form[name="rename_item"] dt,form[name="destroy_item"] dt{width:20%}
 #moin-modify dd{width:100%;float:none;}
@@ -393,8 +393,7 @@ div.ct-hide{background:transparent url("../img/moin-moveup.png") no-repeat cente
 #file_upload{margin-top:2em}
 form.upload_file{background-color:#708090;border:1px solid #4e7da9;color:#cfcfcf;cursor:pointer;direction:ltr;font-weight:bold;height:2.5em;line-height:2.5em;overflow:hidden;position:relative;text-align:center;width:15em;box-shadow:0 0 5px #708090}
 form.upload_file:hover{color:#fff}
-form.upload_file input{-moz-transform:translate(-800px,0) scale(10);border:300px solid transparent;cursor:pointer;height:100%;margin:0;opacity:0;position:absolute;right:0;top:0}
-form.upload_file input{height:auto}
+form.upload_file input{cursor:pointer;height:100%;margin:0;opacity:0;position:absolute;right:0;top:0}
 form.upload_file button{display:none}
 form.upload_file{display:block}
 .file_upload_template .file_upload_start{visibility:hidden;border-width:0;padding:0}

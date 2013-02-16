@@ -7,14 +7,10 @@
 
 from StringIO import StringIO
 
-import pytest
-
 from flask import current_app as app
 from flask import g as flaskg
 
-from MoinMoin.conftest import init_test_app, deinit_test_app
-from MoinMoin.config import NAME, CURRENT, CONTENTTYPE, IS_SYSITEM, SYSITEM_VERSION
-from MoinMoin.storage.error import NoSuchItemError
+from MoinMoin.constants.keys import NAME, CONTENTTYPE
 
 from MoinMoin._tests import wikiconfig
 

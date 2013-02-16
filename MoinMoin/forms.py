@@ -9,10 +9,12 @@
 """
 
 
-import re, datetime
+import re
+import datetime
 import json
 
-from flatland import Element, Form, String, Integer, Boolean, Enum, Dict, JoinedString, List, Array, DateTime as _DateTime
+from flatland import (Element, Form, String, Integer, Boolean, Enum, Dict, JoinedString, List, Array,
+                      DateTime as _DateTime)
 from flatland.util import class_cloner, Unspecified
 from flatland.validation import Validator, Present, IsEmail, ValueBetween, URLValidator, Converted, ValueAtLeast
 from flatland.exc import AdaptationError
@@ -22,7 +24,6 @@ from flask import g as flaskg
 from MoinMoin.constants.forms import *
 from MoinMoin.constants.keys import ITEMID, NAME
 from MoinMoin.i18n import _, L_, N_
-from MoinMoin.security.textcha import TextCha, TextChaizedForm, TextChaValid
 from MoinMoin.util.forms import FileStorage
 
 
@@ -47,7 +48,7 @@ class ValidJSON(Validator):
     def validate(self, element, state):
         try:
             json.loads(element.value)
-        except: # catch ANY exception that happens due to unserializing
+        except:  # catch ANY exception that happens due to unserializing
             return self.note_error(element, state, 'invalid_json_msg')
         return True
 
@@ -59,7 +60,8 @@ OpenID = URL.using(label=L_('OpenID')).with_properties(placeholder=L_("OpenID ad
 
 YourOpenID = OpenID.with_properties(placeholder=L_("Your OpenID address"))
 
-Email = String.using(label=L_('E-Mail')).with_properties(widget=WIDGET_EMAIL, placeholder=L_("E-Mail address")).validated_by(IsEmail())
+Email = String.using(label=L_('E-Mail')).with_properties(widget=WIDGET_EMAIL,
+                                                         placeholder=L_("E-Mail address")).validated_by(IsEmail())
 
 YourEmail = Email.with_properties(placeholder=L_("Your E-Mail address"))
 
@@ -72,6 +74,15 @@ Checkbox = Boolean.with_properties(widget=WIDGET_CHECKBOX).using(optional=True, 
 InlineCheckbox = Checkbox.with_properties(widget=WIDGET_INLINE_CHECKBOX)
 
 Select = Enum.with_properties(widget=WIDGET_SELECT)
+
+# SelectSubmit is like Select in that it is rendered as a group of controls
+# with different (predefined) `value`s for the same `name`. But the controls are
+# submit buttons instead of radio buttons.
+#
+# This is used to present the user several "OK" buttons with slightly different
+# semantics, like "Update" and "Update and Close" on a ticket page, or
+# "Save as Draft" and "Publish" when editing a blog entry.
+SelectSubmit = Enum.with_properties(widget=WIDGET_SELECT_SUBMIT)
 
 
 # Need a better name to capture the behavior
@@ -88,9 +99,11 @@ class MyJoinedString(JoinedString):
     def u(self):
         return self.separator.join(child.u for child in self)
 
-Tags = MyJoinedString.of(String).with_properties(widget=WIDGET_TEXT).using(label=L_('Tags'), optional=True, separator=', ', separator_regex=re.compile(r'\s*,\s*'))
+Tags = MyJoinedString.of(String).with_properties(widget=WIDGET_TEXT).using(label=L_('Tags'), optional=True,
+                                                            separator=', ', separator_regex=re.compile(r'\s*,\s*'))
 
-Names = MyJoinedString.of(String).with_properties(widget=WIDGET_TEXT).using(label=L_('Names'), optional=True, separator=', ', separator_regex=re.compile(r'\s*,\s*'))
+Names = MyJoinedString.of(String).with_properties(widget=WIDGET_TEXT).using(label=L_('Names'), optional=True,
+                                                            separator=', ', separator_regex=re.compile(r'\s*,\s*'))
 
 Search = Text.using(default=u'', optional=True).with_properties(widget=WIDGET_SEARCH, placeholder=L_("Search Query"))
 
@@ -138,12 +151,11 @@ class DateTimeUNIX(_DateTime):
             dt = utctimestamp(dt)
         return dt
 
-DateTime = (DateTimeUNIX.with_properties(widget=WIDGET_DATETIME, placeholder=_("YYYY-MM-DD HH:MM:SS (example: 2013-12-31 23:59:59)"))
+DateTime = (DateTimeUNIX.with_properties(widget=WIDGET_DATETIME,
+                                         placeholder=_("YYYY-MM-DD HH:MM:SS (example: 2013-12-31 23:59:59)"))
             .validated_by(Converted(incorrect=L_("Please use the following format: YYYY-MM-DD HH:MM:SS"))))
 
 File = FileStorage.with_properties(widget=WIDGET_FILE)
-
-Submit = String.using(default=L_('OK'), optional=True).with_properties(widget=WIDGET_SUBMIT, class_=CLASS_BUTTON)
 
 Hidden = String.using(optional=True).with_properties(widget=WIDGET_HIDDEN)
 
@@ -165,6 +177,7 @@ class ValidReference(Validator):
         if element.value not in element.valid_values:
             return self.note_error(element, state, 'invalid_reference_msg')
         return True
+
 
 class Reference(Select.with_properties(empty_label=L_(u'(None)')).validated_by(ValidReference())):
     """
