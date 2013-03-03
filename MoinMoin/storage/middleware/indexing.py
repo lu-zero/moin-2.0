@@ -74,9 +74,10 @@ logging = log.getLogger(__name__)
 
 from MoinMoin.constants.keys import (WIKINAME, NAMESPACE, NAME, NAME_EXACT, MTIME, CONTENTTYPE, TAGS, LANGUAGE,
                                      USERID, ADDRESS, HOSTNAME, SIZE, ACTION, COMMENT, SUMMARY, CONTENT,
-                                     EXTERNALLINKS, ITEMLINKS, ITEMTRANSCLUSIONS, ACL, EMAIL, OPENID,
+                                     EXTERNALLINKS, ITEMLINKS, ITEMTRANSCLUSIONS, ACL, DISABLED, EMAIL, OPENID,
                                      ITEMID, REVID, CURRENT, PARENTID, PTIME, LATEST_REVS, ALL_REVS, BACKENDNAME)
 from MoinMoin.constants.contenttypes import CONTENTTYPE_USER
+from MoinMoin.constants.namespaces import NAMESPACE_DEFAULT
 from MoinMoin.constants import keys
 from MoinMoin.constants.keys import ITEMTYPE
 
@@ -89,6 +90,10 @@ from MoinMoin.storage.error import NoSuchItemError, ItemAlreadyExistsError
 
 WHOOSH_FILESTORAGE = 'FileStorage'
 INDEXES = [LATEST_REVS, ALL_REVS, ]
+
+VALIDATION_HANDLING_STRICT = 'strict'
+VALIDATION_HANDLING_WARN = 'warn'
+VALIDATION_HANDLING = VALIDATION_HANDLING_WARN
 
 
 def get_names(meta):
@@ -253,6 +258,8 @@ class IndexingMiddleware(object):
         common_fields = {
             # wikiname so we can have a shared index in a wiki farm, always check this!
             WIKINAME: ID(stored=True),
+            # namespace, so we can have different namespaces within a wiki, always check this!
+            NAMESPACE: ID(stored=True),
             # tokenized NAME from metadata - use this for manual searching from UI
             NAME: TEXT(stored=True, multitoken_query="and", analyzer=item_name_analyzer(), field_boost=2.0),
             # unmodified NAME from metadata - use this for precise lookup by the code.
@@ -313,6 +320,7 @@ class IndexingMiddleware(object):
             # killing other users from index when update_document() is called!
             EMAIL: ID(stored=True),
             OPENID: ID(stored=True),
+            DISABLED: BOOLEAN(stored=True),
         }
         latest_revs_fields.update(**userprofile_fields)
 
@@ -1048,12 +1056,12 @@ class Item(object):
             Schema = ContentMetaSchema
         m = Schema(meta)
         valid = m.validate(state)
-        # TODO: currently we just log validation results. in the end we should
-        # reject invalid stuff in some comfortable way.
         if not valid:
             logging.warning("metadata validation failed, see below")
             for e in m.children:
                 logging.warning("{0}, {1}".format(e.valid, e))
+            if VALIDATION_HANDLING == VALIDATION_HANDLING_STRICT:
+                raise ValueError('metadata validation failed and strict handling requested, see the log for details')
 
         # we do not have anything in m that is not defined in the schema,
         # e.g. userdefined meta keys or stuff we do not validate. thus, we

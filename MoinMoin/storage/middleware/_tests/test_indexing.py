@@ -17,6 +17,7 @@ from flask import g as flaskg
 
 from MoinMoin.constants.keys import (NAME, SIZE, ITEMID, REVID, DATAID, HASH_ALGORITHM, CONTENT, COMMENT,
                                      LATEST_REVS, ALL_REVS, NAMESPACE)
+from MoinMoin.constants.namespaces import NAMESPACE_USERPROFILES
 
 from MoinMoin.auth import GivenAuth
 from MoinMoin._tests import wikiconfig
@@ -355,7 +356,7 @@ class TestIndexingMiddleware(object):
         # TODO: this is a very simple check that assumes that data is put 1:1
         # into index' CONTENT field.
         item_name = u'foo'
-        meta = dict(name=[item_name, ], contenttype=u'text/plain')
+        meta = dict(name=[item_name, ], contenttype=u'text/plain;charset=utf-8')
         data = 'some test content\n'
         item = self.imw[item_name]
         data_file = StringIO(data)
@@ -369,11 +370,11 @@ class TestIndexingMiddleware(object):
     def test_namespaces(self):
         item_name_n = u'normal'
         item = self.imw[item_name_n]
-        rev_n = item.store_revision(dict(name=[item_name_n, ], contenttype=u'text/plain'),
+        rev_n = item.store_revision(dict(name=[item_name_n, ], contenttype=u'text/plain;charset=utf-8'),
                                     StringIO(str(item_name_n)), return_rev=True)
-        item_name_u = u'userprofiles:userprofile'
+        item_name_u = u'%s:userprofile' % NAMESPACE_USERPROFILES
         item = self.imw[item_name_u]
-        rev_u = item.store_revision(dict(name=[item_name_u, ], contenttype=u'text/plain'),
+        rev_u = item.store_revision(dict(name=[item_name_u, ], contenttype=u'text/plain;charset=utf-8'),
                                     StringIO(str(item_name_u)), return_rev=True)
         item = self.imw[item_name_n]
         rev_n = item.get_revision(rev_n.revid)
@@ -381,14 +382,14 @@ class TestIndexingMiddleware(object):
         assert rev_n.meta[NAME] == [item_name_n, ]
         item = self.imw[item_name_u]
         rev_u = item.get_revision(rev_u.revid)
-        assert rev_u.meta[NAMESPACE] == u'userprofiles'
+        assert rev_u.meta[NAMESPACE] == NAMESPACE_USERPROFILES
         assert rev_u.meta[NAME] == [item_name_u.split(':')[1]]
 
     def test_parentnames(self):
         item_name = u'child'
         item = self.imw[item_name]
         item.store_revision(dict(name=[u'child', u'p1/a', u'p2/b', u'p2/c', u'p3/p4/d', ],
-                                 contenttype=u'text/plain'),
+                                 contenttype=u'text/plain;charset=utf-8'),
                             StringIO(''))
         item = self.imw[item_name]
         assert item.parentnames == [u'p1', u'p2', u'p3/p4', ]  # one p2 duplicate removed

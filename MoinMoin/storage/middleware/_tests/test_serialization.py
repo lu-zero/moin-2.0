@@ -15,17 +15,18 @@ from ..routing import Backend as RoutingBackend
 from ..serialization import serialize, deserialize
 
 from MoinMoin.constants.keys import NAME, CONTENTTYPE
+from MoinMoin.constants.namespaces import NAMESPACE_DEFAULT
 
 from MoinMoin.storage.backends.stores import MutableBackend
 from MoinMoin.storage.stores.memory import BytesStore, FileStore
 
 
 contents = [
-    (u'Foo', {NAME: [u'Foo', ], CONTENTTYPE: u'text/plain'}, ''),
-    (u'Foo', {NAME: [u'Foo', ], CONTENTTYPE: u'text/plain'}, '2nd'),
-    (u'Subdir', {NAME: [u'Subdir', ], CONTENTTYPE: u'text/plain'}, ''),
-    (u'Subdir/Foo', {NAME: [u'Subdir/Foo', ], CONTENTTYPE: u'text/plain'}, ''),
-    (u'Subdir/Bar', {NAME: [u'Subdir/Bar', ], CONTENTTYPE: u'text/plain'}, ''),
+    (u'Foo', {NAME: [u'Foo', ], CONTENTTYPE: u'text/plain;charset=utf-8'}, ''),
+    (u'Foo', {NAME: [u'Foo', ], CONTENTTYPE: u'text/plain;charset=utf-8'}, '2nd'),
+    (u'Subdir', {NAME: [u'Subdir', ], CONTENTTYPE: u'text/plain;charset=utf-8'}, ''),
+    (u'Subdir/Foo', {NAME: [u'Subdir/Foo', ], CONTENTTYPE: u'text/plain;charset=utf-8'}, ''),
+    (u'Subdir/Bar', {NAME: [u'Subdir/Bar', ], CONTENTTYPE: u'text/plain;charset=utf-8'}, ''),
 ]
 
 
@@ -56,7 +57,7 @@ def make_middleware(request):
     meta_store = BytesStore()
     data_store = FileStore()
     _backend = MutableBackend(meta_store, data_store)
-    namespaces = [('', u'backend')]
+    namespaces = [(NAMESPACE_DEFAULT, u'backend')]
     backends = {u'backend': _backend}
     backend = RoutingBackend(namespaces, backends)
     backend.create()
