@@ -163,7 +163,7 @@ class ConfigFunctionality(object):
             except (KeyError, ValueError):
                 raise error.ConfigurationError(
                     "You must set a (at least {0} chars long) secret string for secrets['{1}']!".format(
-                    secret_min_length, secret_key_name))
+                        secret_min_length, secret_key_name))
 
         from passlib.context import CryptContext
         try:
@@ -407,7 +407,7 @@ options_no_group_name = {
             ('frontend.rename_item', L_('Rename'), L_('Rename this item'), True, ),
             ('frontend.delete_item', L_('Delete'), L_('Delete this item'), True, ),
             ('frontend.destroy_item', L_('Destroy'), L_('Completely destroy this item'), True, ),
-            ('frontend.backrefs', L_('Referrers'), L_('What refers here?'), False, ),
+            ('frontend.refs', L_('References'), L_('Show incoming and outgoing references'), False, ),
             ('frontend.sitemap', L_('Site Map'), L_('Local Site Map of this item'), True, ),
             ('frontend.similar_names', L_('Similar'), L_('Items with similar names'), False, ),
         ], 'list of edit bar entries (list of tuples (endpoint, label))'),
@@ -565,9 +565,9 @@ options = {
     )),
 
     'ns': ('Storage Namespaces',
-    "Storage namespaces can be defined for all sorts of data. All items sharing a common namespace as prefix" +
-    "are then stored within the same backend. The common prefix for all data is ''.",
-    (
+           "Storage namespaces can be defined for all sorts of data. "
+           "All items sharing a common namespace as prefix are then stored within the same backend. "
+           "The common prefix for all data is ''.", (
         ('content', '/', "All content is by default stored below /, hence the prefix is ''."),  # Not really necessary. Just for completeness.
         ('user_profile', 'UserProfile/', 'User profiles (i.e. user data, not their homepage) are stored in this namespace.'),
         ('user_homepage', 'User/', 'All user homepages are stored below this namespace.'),
