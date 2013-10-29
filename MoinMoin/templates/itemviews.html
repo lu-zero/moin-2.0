@@ -56,7 +56,7 @@
             {%- if endpoint == 'frontend.subscribe_item' and user.valid %}
                 <li>
                     <a href="{{ url_for(endpoint, item_name=fqname) }}" title="{{ title }}" rel="nofollow">
-                        {%- if user.is_subscribed_to([fqname]) %}
+                        {%- if user.is_subscribed_to(item) %}
                             {{ _('Unsubscribe') }}
                         {%- else %}
                             {{ _('Subscribe') }}

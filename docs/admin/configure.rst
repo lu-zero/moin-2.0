@@ -1348,6 +1348,9 @@ A sample configuration looks like e.g::
     MOINCFG = LocalConfig
     DEBUG = True
 
+
+.. _mail-configuration:
+
 Mail configuration
 ==================
 
@@ -1355,15 +1358,17 @@ Sending E-Mail
 --------------
 Moin can optionally send E-Mail. Possible uses:
 
-* send out item change notifications.
+* send out item change notifications
 * enable users to reset forgotten passwords
+* inform admins about runtime exceptions
 
 You need to configure some settings before sending E-Mail can be supported::
 
     # the "from:" address [Unicode]
     mail_from = u"wiki <wiki@example.org>"
 
-    # a) using an SMTP server, e.g. "mail.provider.com" (None to disable mail)
+    # a) using an SMTP server, e.g. "mail.provider.com" with optional `:port`
+    appendix, which defaults to 25 (set None to disable mail)
     mail_smarthost = "smtp.example.org"
 
     # if you need to use SMTP AUTH at your mail_smarthost:
@@ -1378,6 +1383,19 @@ You need to configure some settings before sending E-Mail can be supported::
 
    describe more moin configuration
 
+Admin Traceback E-Mails
+-----------------------
+If you want to enable admins to receive Python tracebacks, you need to configure
+the following::
+
+    # list of admin emails
+    admin_emails = [u"admin <admin@example.org>"]
+
+    # send tracebacks to admins
+    email_tracebacks = True
+
+
+Please also check the logging configuration example in `docs/examples/config/logging/email`.
 
 User E-Mail Address Verification
 --------------------------------

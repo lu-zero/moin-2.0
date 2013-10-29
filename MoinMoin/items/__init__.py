@@ -50,12 +50,14 @@ from MoinMoin.constants.keys import (
     CONTENTTYPE, SIZE, ACTION, ADDRESS, HOSTNAME, USERID, COMMENT,
     HASH_ALGORITHM, ITEMID, REVID, DATAID, CURRENT, PARENTID, NAMESPACE,
     UFIELDS_TYPELIST, UFIELDS, TRASH,
+    ACTION_SAVE, ACTION_REVERT, ACTION_TRASH, ACTION_RENAME
 )
 from MoinMoin.constants.namespaces import NAMESPACE_ALL
 from MoinMoin.constants.contenttypes import CHARSET, CONTENTTYPE_NONEXISTENT
 from MoinMoin.constants.itemtypes import (
     ITEMTYPE_NONEXISTENT, ITEMTYPE_USERPROFILE, ITEMTYPE_DEFAULT,
 )
+from MoinMoin.util.notifications import DESTROY_REV, DESTROY_ALL
 
 from .content import content_registry, Content, NonExistentContent, Draw
 
@@ -428,18 +430,21 @@ class Item(object):
         fqname = CompositeName(self.fqname.namespace, self.fqname.field, name)
         if flaskg.storage.get_item(**fqname.query):
             raise NameNotUniqueError(L_("An item named %s already exists in the namespace %s." % (name, fqname.namespace)))
-        return self._rename(name, comment, action=u'RENAME')
+        return self._rename(name, comment, action=ACTION_RENAME)
 
     def delete(self, comment=u''):
         """
         delete this item (remove current name from NAME list)
         """
-        return self._rename(None, comment, action=u'TRASH', delete=True)
+        return self._rename(None, comment, action=ACTION_TRASH, delete=True)
 
     def revert(self, comment=u''):
-        return self._save(self.meta, self.content.data, action=u'REVERT', comment=comment)
+        return self._save(self.meta, self.content.data, action=ACTION_REVERT, comment=comment)
 
     def destroy(self, comment=u'', destroy_item=False):
+        action = DESTROY_ALL if destroy_item else DESTROY_REV
+        item_modified.send(app, item_name=self.name, action=action, meta=self.meta,
+                           content=self.rev.data, comment=comment)
         # called from destroy UI/POST
         if destroy_item:
             # destroy complete item with all revisions, metadata, etc.
@@ -509,7 +514,7 @@ class Item(object):
         """
         raise NotImplementedError
 
-    def _save(self, meta, data=None, name=None, action=u'SAVE', contenttype_guessed=None, comment=None,
+    def _save(self, meta, data=None, name=None, action=ACTION_SAVE, contenttype_guessed=None, comment=None,
               overwrite=False, delete=False):
         backend = flaskg.storage
         storage_item = backend.get_item(**self.fqname.query)
@@ -581,7 +586,11 @@ class Item(object):
                                              contenttype_guessed=contenttype_guessed,
                                              return_rev=True,
                                              )
-        item_modified.send(app._get_current_object(), item_name=name)
+        # XXX TODO name might be None here (we have a failing unit test)
+        # maybe this needs to be changed so a fqname is used instead of
+        # a simple name
+        assert name is not None  # fail early
+        item_modified.send(app, item_name=name, action=action)
         return newrev.revid, newrev.meta[SIZE]
 
     @property
@@ -754,6 +763,7 @@ class Default(Contentful):
         rev_ids = []
         item_templates = self.content.get_templates(self.contenttype)
         return render_template('modify_select_template.html',
+                               item=self,
                                item_name=self.name,
                                fqname=self.fqname,
                                itemtype=self.itemtype,
@@ -826,6 +836,7 @@ class Default(Contentful):
         return render_template(self.modify_template,
                                fqname=self.fqname,
                                item_name=self.name,
+                               item=self,
                                rows_meta=str(ROWS_META), cols=str(COLS),
                                form=form,
                                search_form=None,
@@ -877,6 +888,7 @@ class NonExistent(Item):
 
     def _select_itemtype(self):
         return render_template('modify_select_itemtype.html',
+                               item=self,
                                item_name=self.name,
                                fqname=self.fqname,
                                itemtypes=item_registry.shown_entries,
