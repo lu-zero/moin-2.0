@@ -6934,6 +6934,7 @@ form.upload_file button {
   padding-left: 24px;
   width: 200px;
   right: 40px;
+  top: 80px;
   position: absolute;
 }
 #ticket-list thead th:hover {
@@ -6999,4 +7000,20 @@ form.upload_file button {
 }
 .tickets-sort-button.dropdown {
   display: inline;
+}
+html {
+  overflow-y: scroll;
+}
+.moin-hist-rev {
+  text-align: center;
+}
+#moin-button-diff {
+  text-align: center;
+}
+.menu .submenu {
+  display: none;
+  margin-bottom: 0px;
+}
+.menu:hover .submenu {
+  display: block;
 }
