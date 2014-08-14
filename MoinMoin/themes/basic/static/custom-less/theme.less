@@ -175,8 +175,13 @@ h1, h2, h3, h4, h5, h6 {
 .moin-quicklink {
   position: relative;
   padding: 5px 15px 5px 15px;
-  border: 1px solid @list-group-border;
+  background-color: #c8ddf1;
+  border: 1px solid #c8ddf1;
   margin-bottom: -1px;
+
+  > a {
+    color: #1b436d;
+  }
 
   &:last-child {
     margin-bottom: 0;
@@ -766,6 +771,35 @@ html{
   padding-left: 0;
   .navbar-collapse {
     padding-left: 0;
+  }
+}
+#editor > textarea {
+  width: 100%;
+}
+.moin-history-save:before {
+  content: url("../img/moin-save.png");
+}
+.moin-history-trash:before {
+  content: url("../img/moin-trash.png");
+}
+.moin-history-rename:before {
+  content: url("../img/moin-rename.png");
+}
+.moin-history-copy:before {
+  content: url("../img/moin-copy.png");
+}
+.moin-history-revert:before {
+  content: url("../img/moin-revert.png");
+}
+.moin-history-container-header {
+  > h2 {
+    display: inline;
+  }
+  > .bookmark-link {
+    margin-bottom: 15px;
+    margin-left: 20px;
+    height: 2em;
+    line-height: 1em;
   }
 }
 
